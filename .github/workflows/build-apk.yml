@@ -24,22 +24,44 @@ jobs:
           distribution: temurin
           java-version: '17'
 
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v4
+        with:
+          packages: ''
+
+      - name: Install Android SDK packages
+        run: |
+          yes | sdkmanager --licenses
+          sdkmanager "platform-tools"
+          sdkmanager "platforms;android-36"
+          sdkmanager "build-tools;36.0.0"
+
       - name: Set up Gradle 9.3.1
         uses: gradle/actions/setup-gradle@v6
         with:
           gradle-version: '9.3.1'
 
-      - name: Verify Java and Gradle
+      - name: Verify build environment
         run: |
+          echo "Java:"
           java -version
+          echo ""
+          echo "Gradle:"
           gradle --version
+          echo ""
+          echo "Android SDK:"
+          sdkmanager --list_installed
 
       - name: Build Debug APK
-        run: gradle :app:assembleDebug --stacktrace --no-daemon
+        run: |
+          gradle :app:assembleDebug \
+            --no-daemon \
+            --stacktrace \
+            --info
 
       - name: Verify APK
         run: |
-          echo "Generated APK files:"
+          echo "Checking generated APK..."
           find app/build/outputs/apk/debug -type f -name "*.apk" -print
 
       - name: Upload APK
