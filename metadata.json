@@ -1,0 +1,6 @@
+{
+  "name": "CloudGallery",
+  "description": "Personal local gallery and file manager with optional Cloudflare R2 backup and storage integration",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

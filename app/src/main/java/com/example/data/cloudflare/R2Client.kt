@@ -1,0 +1,464 @@
+package com.example.data.cloudflare
+
+import android.util.Xml
+import com.example.data.local.R2Credentials
+import com.example.domain.model.R2Item
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody
+import okio.BufferedSink
+import org.xmlpull.v1.XmlPullParser
+import java.io.File
+import java.io.FileOutputStream
+import java.io.InputStream
+import java.io.StringReader
+import java.net.URI
+import java.text.SimpleDateFormat
+import java.util.Locale
+import java.util.TimeZone
+import java.util.concurrent.TimeUnit
+
+class R2Client(
+    private val client: OkHttpClient = OkHttpClient.Builder()
+        .connectTimeout(30, TimeUnit.SECONDS)
+        .readTimeout(60, TimeUnit.SECONDS)
+        .writeTimeout(60, TimeUnit.SECONDS)
+        .build()
+) {
+
+    private fun getHostAndBaseUrl(credentials: R2Credentials): Pair<String, String> {
+        val endpoint = credentials.endpoint.trim()
+        val accountId = credentials.accountId.trim()
+        val fullUrl = if (endpoint.isNotEmpty()) {
+            if (!endpoint.startsWith("http://") && !endpoint.startsWith("https://")) {
+                "https://$endpoint"
+            } else endpoint
+        } else {
+            "https://$accountId.r2.cloudflarestorage.com"
+        }
+        val uri = URI(fullUrl)
+        val host = uri.host ?: "$accountId.r2.cloudflarestorage.com"
+        return Pair(host, fullUrl.trimEnd('/'))
+    }
+
+    suspend fun testConnection(credentials: R2Credentials): Result<Boolean> = withContext(Dispatchers.IO) {
+        try {
+            if (credentials.accountId.isBlank() && credentials.endpoint.isBlank()) {
+                return@withContext Result.failure(IllegalArgumentException("Account ID is required"))
+            }
+            if (credentials.accessKeyId.isBlank()) {
+                return@withContext Result.failure(IllegalArgumentException("Access Key ID is required"))
+            }
+            if (credentials.secretAccessKey.isBlank()) {
+                return@withContext Result.failure(IllegalArgumentException("Secret Access Key is required"))
+            }
+            if (credentials.bucketName.isBlank()) {
+                return@withContext Result.failure(IllegalArgumentException("Bucket Name is required"))
+            }
+
+            val (host, baseUrl) = getHostAndBaseUrl(credentials)
+            val bucket = credentials.bucketName.trim()
+            val path = "/$bucket"
+            val queryParams = mapOf("list-type" to "2", "max-keys" to "1")
+
+            val signResult = AwsSigV4Signer.sign(
+                method = "GET",
+                host = host,
+                path = path,
+                queryParams = queryParams,
+                headers = emptyMap(),
+                payloadHash = AwsSigV4Signer.emptyPayloadHash(),
+                accessKeyId = credentials.accessKeyId.trim(),
+                secretAccessKey = credentials.secretAccessKey.trim()
+            )
+
+            val url = "$baseUrl$path?list-type=2&max-keys=1"
+            val request = Request.Builder()
+                .url(url)
+                .get()
+                .header("host", host)
+                .header("x-amz-date", signResult.amzDate)
+                .header("x-amz-content-sha256", signResult.payloadHash)
+                .header("Authorization", signResult.authorization)
+                .build()
+
+            val response = client.newCall(request).execute()
+            response.use { resp ->
+                if (resp.isSuccessful) {
+                    Result.success(true)
+                } else {
+                    val code = resp.code
+                    val errorBody = resp.body?.string() ?: ""
+                    val message = when (code) {
+                        403 -> "Access Denied: Invalid Access Key or Secret Key"
+                        404 -> "Bucket '$bucket' not found"
+                        else -> "Connection failed with HTTP $code: ${parseErrorMessage(errorBody)}"
+                    }
+                    Result.failure(Exception(message))
+                }
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun listObjects(
+        credentials: R2Credentials,
+        prefix: String = "",
+        delimiter: String = "/"
+    ): Result<List<R2Item>> = withContext(Dispatchers.IO) {
+        try {
+            val (host, baseUrl) = getHostAndBaseUrl(credentials)
+            val bucket = credentials.bucketName.trim()
+            val path = "/$bucket"
+            val queryParams = mutableMapOf("list-type" to "2")
+            if (prefix.isNotEmpty()) {
+                queryParams["prefix"] = prefix
+            }
+            if (delimiter.isNotEmpty()) {
+                queryParams["delimiter"] = delimiter
+            }
+
+            val signResult = AwsSigV4Signer.sign(
+                method = "GET",
+                host = host,
+                path = path,
+                queryParams = queryParams,
+                headers = emptyMap(),
+                payloadHash = AwsSigV4Signer.emptyPayloadHash(),
+                accessKeyId = credentials.accessKeyId.trim(),
+                secretAccessKey = credentials.secretAccessKey.trim()
+            )
+
+            val queryStr = queryParams.entries.joinToString("&") { "${it.key}=${it.value}" }
+            val url = "$baseUrl$path?$queryStr"
+
+            val request = Request.Builder()
+                .url(url)
+                .get()
+                .header("host", host)
+                .header("x-amz-date", signResult.amzDate)
+                .header("x-amz-content-sha256", signResult.payloadHash)
+                .header("Authorization", signResult.authorization)
+                .build()
+
+            val response = client.newCall(request).execute()
+            response.use { resp ->
+                if (!resp.isSuccessful) {
+                    val errorBody = resp.body?.string() ?: ""
+                    return@withContext Result.failure(Exception("List failed: ${parseErrorMessage(errorBody)}"))
+                }
+                val body = resp.body?.string() ?: ""
+                val items = parseListObjectsXml(body, prefix)
+                Result.success(items)
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun uploadStream(
+        credentials: R2Credentials,
+        key: String,
+        inputStream: InputStream,
+        contentLength: Long,
+        mimeType: String = "application/octet-stream",
+        onProgress: (bytesUploaded: Long, totalBytes: Long) -> Unit = { _, _ -> }
+    ): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            val (host, baseUrl) = getHostAndBaseUrl(credentials)
+            val bucket = credentials.bucketName.trim()
+            val cleanKey = key.trimStart('/')
+            val path = "/$bucket/$cleanKey"
+
+            val headers = mapOf("content-type" to mimeType)
+            val payloadHash = "UNSIGNED-PAYLOAD"
+
+            val signResult = AwsSigV4Signer.sign(
+                method = "PUT",
+                host = host,
+                path = path,
+                queryParams = emptyMap(),
+                headers = headers,
+                payloadHash = payloadHash,
+                accessKeyId = credentials.accessKeyId.trim(),
+                secretAccessKey = credentials.secretAccessKey.trim()
+            )
+
+            val requestBody = object : RequestBody() {
+                override fun contentType() = mimeType.toMediaTypeOrNull()
+
+                override fun contentLength() = contentLength
+
+                override fun writeTo(sink: BufferedSink) {
+                    val buffer = ByteArray(8192)
+                    var uploaded = 0L
+                    inputStream.use { stream ->
+                        var read: Int
+                        while (stream.read(buffer).also { read = it } != -1) {
+                            sink.write(buffer, 0, read)
+                            uploaded += read
+                            onProgress(uploaded, contentLength)
+                        }
+                    }
+                }
+            }
+
+            val request = Request.Builder()
+                .url("$baseUrl$path")
+                .put(requestBody)
+                .header("host", host)
+                .header("x-amz-date", signResult.amzDate)
+                .header("x-amz-content-sha256", payloadHash)
+                .header("Authorization", signResult.authorization)
+                .header("Content-Type", mimeType)
+                .build()
+
+            val response = client.newCall(request).execute()
+            response.use { resp ->
+                if (resp.isSuccessful) {
+                    Result.success(Unit)
+                } else {
+                    val errorBody = resp.body?.string() ?: ""
+                    Result.failure(Exception("Upload failed ($resp.code): ${parseErrorMessage(errorBody)}"))
+                }
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun downloadToFile(
+        credentials: R2Credentials,
+        key: String,
+        destinationFile: File,
+        onProgress: (bytesDownloaded: Long, totalBytes: Long) -> Unit = { _, _ -> }
+    ): Result<File> = withContext(Dispatchers.IO) {
+        try {
+            val (host, baseUrl) = getHostAndBaseUrl(credentials)
+            val bucket = credentials.bucketName.trim()
+            val cleanKey = key.trimStart('/')
+            val path = "/$bucket/$cleanKey"
+
+            val signResult = AwsSigV4Signer.sign(
+                method = "GET",
+                host = host,
+                path = path,
+                queryParams = emptyMap(),
+                headers = emptyMap(),
+                payloadHash = AwsSigV4Signer.emptyPayloadHash(),
+                accessKeyId = credentials.accessKeyId.trim(),
+                secretAccessKey = credentials.secretAccessKey.trim()
+            )
+
+            val request = Request.Builder()
+                .url("$baseUrl$path")
+                .get()
+                .header("host", host)
+                .header("x-amz-date", signResult.amzDate)
+                .header("x-amz-content-sha256", signResult.payloadHash)
+                .header("Authorization", signResult.authorization)
+                .build()
+
+            val response = client.newCall(request).execute()
+            response.use { resp ->
+                if (!resp.isSuccessful) {
+                    val errorBody = resp.body?.string() ?: ""
+                    return@withContext Result.failure(Exception("Download failed: ${parseErrorMessage(errorBody)}"))
+                }
+
+                val body = resp.body ?: return@withContext Result.failure(Exception("Empty body"))
+                val totalLength = body.contentLength()
+
+                destinationFile.parentFile?.mkdirs()
+                FileOutputStream(destinationFile).use { fileOut ->
+                    body.byteStream().use { input ->
+                        val buffer = ByteArray(8192)
+                        var downloaded = 0L
+                        var read: Int
+                        while (input.read(buffer).also { read = it } != -1) {
+                            fileOut.write(buffer, 0, read)
+                            downloaded += read
+                            onProgress(downloaded, totalLength)
+                        }
+                    }
+                }
+                Result.success(destinationFile)
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun deleteObject(
+        credentials: R2Credentials,
+        key: String
+    ): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            val (host, baseUrl) = getHostAndBaseUrl(credentials)
+            val bucket = credentials.bucketName.trim()
+            val cleanKey = key.trimStart('/')
+            val path = "/$bucket/$cleanKey"
+
+            val signResult = AwsSigV4Signer.sign(
+                method = "DELETE",
+                host = host,
+                path = path,
+                queryParams = emptyMap(),
+                headers = emptyMap(),
+                payloadHash = AwsSigV4Signer.emptyPayloadHash(),
+                accessKeyId = credentials.accessKeyId.trim(),
+                secretAccessKey = credentials.secretAccessKey.trim()
+            )
+
+            val request = Request.Builder()
+                .url("$baseUrl$path")
+                .delete()
+                .header("host", host)
+                .header("x-amz-date", signResult.amzDate)
+                .header("x-amz-content-sha256", signResult.payloadHash)
+                .header("Authorization", signResult.authorization)
+                .build()
+
+            val response = client.newCall(request).execute()
+            response.use { resp ->
+                if (resp.isSuccessful || resp.code == 204) {
+                    Result.success(Unit)
+                } else {
+                    val errorBody = resp.body?.string() ?: ""
+                    Result.failure(Exception("Delete failed (${resp.code}): ${parseErrorMessage(errorBody)}"))
+                }
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    private fun parseErrorMessage(xml: String): String {
+        return try {
+            val parser = Xml.newPullParser()
+            parser.setInput(StringReader(xml))
+            var eventType = parser.eventType
+            var message = ""
+            while (eventType != XmlPullParser.END_DOCUMENT) {
+                if (eventType == XmlPullParser.START_TAG && parser.name.equals("Message", ignoreCase = true)) {
+                    message = parser.nextText()
+                    break
+                }
+                eventType = parser.next()
+            }
+            if (message.isNotEmpty()) message else xml.take(120)
+        } catch (_: Exception) {
+            xml.take(120)
+        }
+    }
+
+    private fun parseListObjectsXml(xml: String, currentPrefix: String): List<R2Item> {
+        val items = mutableListOf<R2Item>()
+        val parser = Xml.newPullParser()
+        parser.setInput(StringReader(xml))
+        var eventType = parser.eventType
+
+        var inContents = false
+        var inCommonPrefixes = false
+        var currentKey = ""
+        var currentSize = 0L
+        var currentLastModified = 0L
+
+        val isoFormat = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US).apply {
+            timeZone = TimeZone.getTimeZone("UTC")
+        }
+        val isoFormatSec = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).apply {
+            timeZone = TimeZone.getTimeZone("UTC")
+        }
+
+        while (eventType != XmlPullParser.END_DOCUMENT) {
+            val tagName = parser.name ?: ""
+            when (eventType) {
+                XmlPullParser.START_TAG -> {
+                    when {
+                        tagName.equals("Contents", ignoreCase = true) -> {
+                            inContents = true
+                            currentKey = ""
+                            currentSize = 0L
+                            currentLastModified = 0L
+                        }
+                        tagName.equals("CommonPrefixes", ignoreCase = true) -> {
+                            inCommonPrefixes = true
+                        }
+                        inContents && tagName.equals("Key", ignoreCase = true) -> {
+                            currentKey = parser.nextText()
+                        }
+                        inContents && tagName.equals("Size", ignoreCase = true) -> {
+                            currentSize = parser.nextText().toLongOrNull() ?: 0L
+                        }
+                        inContents && tagName.equals("LastModified", ignoreCase = true) -> {
+                            val text = parser.nextText()
+                            currentLastModified = try {
+                                isoFormat.parse(text)?.time ?: isoFormatSec.parse(text)?.time ?: 0L
+                            } catch (_: Exception) { 0L }
+                        }
+                        inCommonPrefixes && tagName.equals("Prefix", ignoreCase = true) -> {
+                            val prefixStr = parser.nextText()
+                            val name = prefixStr.removeSuffix("/").substringAfterLast('/') + "/"
+                            items.add(
+                                R2Item(
+                                    key = prefixStr,
+                                    name = name,
+                                    size = 0L,
+                                    lastModified = 0L,
+                                    isFolder = true,
+                                    mimeType = "inode/directory"
+                                )
+                            )
+                        }
+                    }
+                }
+                XmlPullParser.END_TAG -> {
+                    if (tagName.equals("Contents", ignoreCase = true)) {
+                        inContents = false
+                        if (currentKey.isNotEmpty() && currentKey != currentPrefix) {
+                            val name = currentKey.removeSuffix("/").substringAfterLast('/')
+                            val isDir = currentKey.endsWith("/")
+                            val mime = if (isDir) "inode/directory" else guessMimeType(name)
+                            items.add(
+                                R2Item(
+                                    key = currentKey,
+                                    name = name,
+                                    size = currentSize,
+                                    lastModified = currentLastModified,
+                                    isFolder = isDir,
+                                    mimeType = mime
+                                )
+                            )
+                        }
+                    } else if (tagName.equals("CommonPrefixes", ignoreCase = true)) {
+                        inCommonPrefixes = false
+                    }
+                }
+            }
+            eventType = parser.next()
+        }
+        return items
+    }
+
+    private fun guessMimeType(name: String): String {
+        val ext = name.substringAfterLast('.', "").lowercase(Locale.ROOT)
+        return when (ext) {
+            "jpg", "jpeg" -> "image/jpeg"
+            "png" -> "image/png"
+            "gif" -> "image/gif"
+            "webp" -> "image/webp"
+            "mp4" -> "video/mp4"
+            "mov" -> "video/quicktime"
+            "mkv" -> "video/x-matroska"
+            "webm" -> "video/webm"
+            "avi" -> "video/x-msvideo"
+            "pdf" -> "application/pdf"
+            else -> "application/octet-stream"
+        }
+    }
+}
