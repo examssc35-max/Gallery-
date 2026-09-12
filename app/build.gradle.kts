@@ -1,4 +1,3 @@
-import com.google.gms.googleservices.googleServices
 import com.google.gms.googleservices.GoogleServicesPlugin.MissingGoogleServicesStrategy
 
 plugins {
@@ -42,8 +41,8 @@ android {
         }
 
         debug {
-            // Let Android use the standard debug signing configuration.
-            // Do not require a custom debug.keystore from the repository.
+            // Use Android's standard debug signing configuration.
+            // No custom debug.keystore is required.
         }
     }
 
@@ -84,7 +83,6 @@ dependencies {
     implementation(platform(libs.androidx.compose.bom))
 
     implementation(libs.androidx.activity.compose)
-
     implementation(libs.androidx.compose.material.icons.core)
     implementation(libs.androidx.compose.material.icons.extended)
     implementation(libs.androidx.compose.material3)
@@ -95,7 +93,6 @@ dependencies {
     implementation(libs.androidx.core.ktx)
 
     implementation(libs.androidx.datastore.preferences)
-
     implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
@@ -110,7 +107,6 @@ dependencies {
 
     implementation(libs.androidx.media3.exoplayer)
     implementation(libs.androidx.media3.ui)
-
     implementation(libs.androidx.work.runtime.ktx)
 
     implementation(libs.converter.moshi)
