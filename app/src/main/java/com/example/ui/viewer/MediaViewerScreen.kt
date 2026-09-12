@@ -167,9 +167,12 @@ fun MediaViewerScreen(
         // Horizontal Pager for photos / videos (Supports left/right swipe, pinch-to-zoom, double-tap zoom)
         HorizontalPager(
             state = pagerState,
-            modifier = Modifier.fillMaxSize()
+            modifier = Modifier.fillMaxSize(),
+            key = { page -> val item = mediaList.getOrNull(page); if (item != null) "${item.id}_${item.path}_$page" else "$page" },
+            beyondViewportPageCount = 1
         ) { page ->
             val item = mediaList[page]
+            val isCurrentPage = (page == pagerState.currentPage)
             if (item.isVideo) {
                 Box(
                     modifier = Modifier.fillMaxSize(),
@@ -178,6 +181,7 @@ fun MediaViewerScreen(
                     ZoomableImageView(
                         uriString = item.uriString,
                         contentDescription = item.name,
+                        isCurrentPage = isCurrentPage,
                         onTap = { controlsVisible = !controlsVisible }
                     )
                     // Big Play Button
@@ -203,6 +207,7 @@ fun MediaViewerScreen(
                 ZoomableImageView(
                     uriString = item.uriString,
                     contentDescription = item.name,
+                    isCurrentPage = isCurrentPage,
                     onTap = { controlsVisible = !controlsVisible }
                 )
             }

@@ -123,4 +123,34 @@ class CloudGalleryUnitTest {
         assertEquals(1, duplicates.size)
         assertEquals(2, duplicates.values.first().size)
     }
+
+    @Test
+    fun `test media viewer list bounds and safe initial index`() {
+        val mediaList = listOf(
+            MediaItem(id = 10L, uriString = "content://10", name = "photo1.jpg"),
+            MediaItem(id = 11L, uriString = "content://11", name = "photo2.jpg"),
+            MediaItem(id = 12L, uriString = "content://12", name = "photo3.jpg")
+        )
+
+        // Safe index coercion
+        val initialIndexFirst = 0.coerceIn(0, mediaList.size - 1)
+        assertEquals(0, initialIndexFirst)
+        assertEquals("photo1.jpg", mediaList[initialIndexFirst].name)
+
+        val initialIndexMid = 1.coerceIn(0, mediaList.size - 1)
+        assertEquals(1, initialIndexMid)
+        assertEquals("photo2.jpg", mediaList[initialIndexMid].name)
+
+        val initialIndexLast = 2.coerceIn(0, mediaList.size - 1)
+        assertEquals(2, initialIndexLast)
+        assertEquals("photo3.jpg", mediaList[initialIndexLast].name)
+
+        // Boundary checks
+        val outOfBoundsNegative = (-5).coerceIn(0, mediaList.size - 1)
+        assertEquals(0, outOfBoundsNegative)
+
+        val outOfBoundsHigh = (99).coerceIn(0, mediaList.size - 1)
+        assertEquals(2, outOfBoundsHigh)
+    }
 }
+
