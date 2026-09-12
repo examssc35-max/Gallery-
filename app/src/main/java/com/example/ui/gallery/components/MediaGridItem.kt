@@ -18,6 +18,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.Icon
@@ -171,6 +172,27 @@ fun MediaGridItem(
                     .padding(4.dp)
                     .size(16.dp)
             )
+        }
+
+        // Cloud Storage Badge
+        if (item.isCloud) {
+            Surface(
+                shape = CircleShape,
+                color = Color.Black.copy(alpha = 0.65f),
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .padding(4.dp)
+                    .size(20.dp)
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = Icons.Default.Cloud,
+                        contentDescription = "Cloudflare R2",
+                        tint = Color(0xFF29B6F6),
+                        modifier = Modifier.size(13.dp)
+                    )
+                }
+            }
         }
 
         // Selection Overlay

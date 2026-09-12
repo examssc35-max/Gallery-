@@ -21,6 +21,12 @@ import java.util.Locale
 import java.util.TimeZone
 import java.util.concurrent.TimeUnit
 
+data class R2ListResult(
+    val items: List<R2Item>,
+    val nextContinuationToken: String? = null,
+    val isTruncated: Boolean = false
+)
+
 class R2Client(
     private val client: OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(30, TimeUnit.SECONDS)
@@ -28,6 +34,24 @@ class R2Client(
         .writeTimeout(60, TimeUnit.SECONDS)
         .build()
 ) {
+
+    fun getPresignedUrl(
+        credentials: R2Credentials,
+        key: String,
+        expiresSeconds: Long = 86400
+    ): String {
+        val (host, _) = getHostAndBaseUrl(credentials)
+        val bucket = credentials.bucketName.trim()
+        val cleanKey = key.trimStart('/')
+        val path = "/$bucket/$cleanKey"
+        return AwsSigV4Signer.generatePresignedGetUrl(
+            host = host,
+            path = path,
+            accessKeyId = credentials.accessKeyId.trim(),
+            secretAccessKey = credentials.secretAccessKey.trim(),
+            expiresSeconds = expiresSeconds
+        )
+    }
 
     private fun getHostAndBaseUrl(credentials: R2Credentials): Pair<String, String> {
         val endpoint = credentials.endpoint.trim()
@@ -105,11 +129,13 @@ class R2Client(
         }
     }
 
-    suspend fun listObjects(
+    suspend fun listObjectsPage(
         credentials: R2Credentials,
         prefix: String = "",
-        delimiter: String = "/"
-    ): Result<List<R2Item>> = withContext(Dispatchers.IO) {
+        delimiter: String = "/",
+        maxKeys: Int = 100,
+        continuationToken: String? = null
+    ): Result<R2ListResult> = withContext(Dispatchers.IO) {
         try {
             val (host, baseUrl) = getHostAndBaseUrl(credentials)
             val bucket = credentials.bucketName.trim()
@@ -120,6 +146,10 @@ class R2Client(
             }
             if (delimiter.isNotEmpty()) {
                 queryParams["delimiter"] = delimiter
+            }
+            queryParams["max-keys"] = maxKeys.toString()
+            if (!continuationToken.isNullOrBlank()) {
+                queryParams["continuation-token"] = continuationToken
             }
 
             val signResult = AwsSigV4Signer.sign(
@@ -152,13 +182,19 @@ class R2Client(
                     return@withContext Result.failure(Exception("List failed: ${parseErrorMessage(errorBody)}"))
                 }
                 val body = resp.body?.string() ?: ""
-                val items = parseListObjectsXml(body, prefix)
-                Result.success(items)
+                val listResult = parseListObjectsXml(body, prefix)
+                Result.success(listResult)
             }
         } catch (e: Exception) {
             Result.failure(e)
         }
     }
+
+    suspend fun listObjects(
+        credentials: R2Credentials,
+        prefix: String = "",
+        delimiter: String = "/"
+    ): Result<List<R2Item>> = listObjectsPage(credentials, prefix, delimiter, 1000).map { it.items }
 
     suspend fun uploadStream(
         credentials: R2Credentials,
@@ -356,7 +392,7 @@ class R2Client(
         }
     }
 
-    private fun parseListObjectsXml(xml: String, currentPrefix: String): List<R2Item> {
+    private fun parseListObjectsXml(xml: String, currentPrefix: String): R2ListResult {
         val items = mutableListOf<R2Item>()
         val parser = Xml.newPullParser()
         parser.setInput(StringReader(xml))
@@ -364,6 +400,8 @@ class R2Client(
 
         var inContents = false
         var inCommonPrefixes = false
+        var isTruncated = false
+        var nextContinuationToken: String? = null
         var currentKey = ""
         var currentSize = 0L
         var currentLastModified = 0L
@@ -380,6 +418,12 @@ class R2Client(
             when (eventType) {
                 XmlPullParser.START_TAG -> {
                     when {
+                        tagName.equals("IsTruncated", ignoreCase = true) -> {
+                            isTruncated = parser.nextText().trim().toBoolean()
+                        }
+                        tagName.equals("NextContinuationToken", ignoreCase = true) -> {
+                            nextContinuationToken = parser.nextText().trim()
+                        }
                         tagName.equals("Contents", ignoreCase = true) -> {
                             inContents = true
                             currentKey = ""
@@ -442,7 +486,7 @@ class R2Client(
             }
             eventType = parser.next()
         }
-        return items
+        return R2ListResult(items = items, nextContinuationToken = nextContinuationToken, isTruncated = isTruncated)
     }
 
     private fun guessMimeType(name: String): String {

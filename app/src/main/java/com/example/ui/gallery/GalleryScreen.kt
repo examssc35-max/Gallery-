@@ -63,7 +63,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.PrimaryTabRow
+import androidx.compose.material3.PrimaryScrollableTabRow
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -92,7 +92,10 @@ import androidx.compose.ui.unit.sp
 import com.example.data.local.DeletionResult
 import com.example.data.local.SortOrder
 import com.example.domain.model.MediaItem
+import com.example.domain.repository.R2Repository
 import com.example.ui.albums.AlbumsScreen
+import com.example.ui.cloud.CloudTabScreen
+import com.example.ui.cloud.CloudTabViewModel
 import com.example.ui.gallery.components.MediaGridItem
 import kotlinx.coroutines.launch
 
@@ -100,6 +103,8 @@ import kotlinx.coroutines.launch
 @Composable
 fun GalleryScreen(
     viewModel: GalleryViewModel,
+    r2Repository: R2Repository,
+    cloudTabViewModel: CloudTabViewModel,
     onOpenViewer: (initialIndex: Int, items: List<MediaItem>) -> Unit,
     onNavigateToBackup: () -> Unit,
     onNavigateToCloud: () -> Unit,
@@ -400,9 +405,10 @@ fun GalleryScreen(
                 .padding(innerPadding)
         ) {
             Column(modifier = Modifier.fillMaxSize()) {
-                // Primary Tab Row
-                PrimaryTabRow(
+                // Primary Scrollable Tab Row: Horizontally scrollable so tabs fit comfortably without crowding
+                PrimaryScrollableTabRow(
                     selectedTabIndex = uiState.selectedTab.ordinal,
+                    edgePadding = 12.dp,
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     GalleryTab.values().forEach { tab ->
@@ -410,17 +416,29 @@ fun GalleryScreen(
                             selected = uiState.selectedTab == tab,
                             onClick = { viewModel.selectTab(tab) },
                             text = {
-                                Text(
-                                    text = when (tab) {
-                                        GalleryTab.ALL -> "All"
-                                        GalleryTab.PHOTOS -> "Photos"
-                                        GalleryTab.VIDEOS -> "Videos"
-                                        GalleryTab.FAVORITES -> "Favorites"
-                                        GalleryTab.ALBUMS -> "Albums"
-                                    },
-                                    fontSize = 13.sp,
-                                    fontWeight = if (uiState.selectedTab == tab) FontWeight.Bold else FontWeight.Normal
-                                )
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    if (tab == GalleryTab.CLOUD) {
+                                        Icon(
+                                            imageVector = Icons.Default.Cloud,
+                                            contentDescription = null,
+                                            tint = if (uiState.selectedTab == tab) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                    }
+                                    Text(
+                                        text = when (tab) {
+                                            GalleryTab.ALL -> "All"
+                                            GalleryTab.PHOTOS -> "Photos"
+                                            GalleryTab.VIDEOS -> "Videos"
+                                            GalleryTab.FAVORITES -> "Favorites"
+                                            GalleryTab.ALBUMS -> "Albums"
+                                            GalleryTab.CLOUD -> "Cloud"
+                                        },
+                                        fontSize = 13.sp,
+                                        fontWeight = if (uiState.selectedTab == tab) FontWeight.Bold else FontWeight.Normal
+                                    )
+                                }
                             },
                             modifier = Modifier.testTag("tab_${tab.name.lowercase()}")
                         )
@@ -450,61 +468,73 @@ fun GalleryScreen(
                 }
 
                 // Tab Content
-                if (uiState.selectedTab == GalleryTab.ALBUMS && uiState.activeAlbumName == null) {
-                    AlbumsScreen(
-                        albums = uiState.albums,
-                        onAlbumClick = { albumName -> viewModel.selectAlbum(albumName) }
-                    )
-                } else {
-                    // Photos / Videos Grid
-                    if (uiState.isLoading && uiState.mediaItems.isEmpty()) {
-                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                            CircularProgressIndicator()
-                        }
-                    } else if (filteredItems.isEmpty()) {
-                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Icon(
-                                    imageVector = Icons.Default.PhotoLibrary,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                                    modifier = Modifier.size(64.dp)
-                                )
-                                Spacer(modifier = Modifier.height(12.dp))
-                                Text(
-                                    text = if (uiState.searchQuery.isNotEmpty())
-                                        "No items match '${uiState.searchQuery}'"
-                                    else
-                                        "No media items in this section",
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        }
-                    } else {
-                        LazyVerticalGrid(
-                            columns = GridCells.Fixed(gridColumns),
-                            contentPadding = PaddingValues(2.dp),
-                            horizontalArrangement = Arrangement.spacedBy(2.dp),
-                            verticalArrangement = Arrangement.spacedBy(2.dp),
+                when {
+                    uiState.selectedTab == GalleryTab.CLOUD -> {
+                        CloudTabScreen(
+                            viewModel = cloudTabViewModel,
+                            r2Repository = r2Repository,
+                            onOpenViewer = onOpenViewer,
+                            onConnectR2 = onNavigateToSettings,
                             modifier = Modifier.fillMaxSize()
-                        ) {
-                            itemsIndexed(filteredItems, key = { _, item -> item.id }) { index, item ->
-                                MediaGridItem(
-                                    item = item,
-                                    isSelected = item.id in uiState.selectedIds,
-                                    isSelectionMode = uiState.isSelectionMode,
-                                    isBackedUp = item.id in uiState.backedUpIds,
-                                    onClick = {
-                                        if (uiState.isSelectionMode) {
+                        )
+                    }
+                    uiState.selectedTab == GalleryTab.ALBUMS && uiState.activeAlbumName == null -> {
+                        AlbumsScreen(
+                            albums = uiState.albums,
+                            onAlbumClick = { albumName -> viewModel.selectAlbum(albumName) }
+                        )
+                    }
+                    else -> {
+                        // Photos / Videos Grid
+                        if (uiState.isLoading && uiState.mediaItems.isEmpty()) {
+                            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                CircularProgressIndicator()
+                            }
+                        } else if (filteredItems.isEmpty()) {
+                            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Icon(
+                                        imageVector = Icons.Default.PhotoLibrary,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                                        modifier = Modifier.size(64.dp)
+                                    )
+                                    Spacer(modifier = Modifier.height(12.dp))
+                                    Text(
+                                        text = if (uiState.searchQuery.isNotEmpty())
+                                            "No items match '${uiState.searchQuery}'"
+                                        else
+                                            "No media items in this section",
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                        } else {
+                            LazyVerticalGrid(
+                                columns = GridCells.Fixed(gridColumns),
+                                contentPadding = PaddingValues(2.dp),
+                                horizontalArrangement = Arrangement.spacedBy(2.dp),
+                                verticalArrangement = Arrangement.spacedBy(2.dp),
+                                modifier = Modifier.fillMaxSize()
+                            ) {
+                                itemsIndexed(filteredItems, key = { _, item -> item.id }) { index, item ->
+                                    MediaGridItem(
+                                        item = item,
+                                        isSelected = item.id in uiState.selectedIds,
+                                        isSelectionMode = uiState.isSelectionMode,
+                                        isBackedUp = item.id in uiState.backedUpIds,
+                                        onClick = {
+                                            if (uiState.isSelectionMode) {
+                                                viewModel.toggleSelection(item.id)
+                                            } else {
+                                                onOpenViewer(index, filteredItems)
+                                            }
+                                        },
+                                        onLongClick = {
                                             viewModel.toggleSelection(item.id)
-                                        } else {
-                                            onOpenViewer(index, filteredItems)
                                         }
-                                    },
-                                    onLongClick = {
-                                        viewModel.toggleSelection(item.id)
-                                    }
-                                )
+                                    )
+                                }
                             }
                         }
                     }

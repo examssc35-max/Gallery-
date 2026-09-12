@@ -33,6 +33,7 @@ import com.example.ui.backup.BackupScreen
 import com.example.ui.backup.BackupViewModel
 import com.example.ui.cloud.CloudBrowserScreen
 import com.example.ui.cloud.CloudBrowserViewModel
+import com.example.ui.cloud.CloudTabViewModel
 import com.example.ui.duplicate.DuplicateFinderScreen
 import com.example.ui.gallery.GalleryScreen
 import com.example.ui.gallery.GalleryViewModel
@@ -65,6 +66,7 @@ class MainActivity : ComponentActivity() {
         val galleryViewModel = GalleryViewModel(mediaRepository, backupRepository, preferencesManager)
         val backupViewModel = BackupViewModel(backupRepository, r2Repository)
         val cloudViewModel = CloudBrowserViewModel(r2Repository)
+        val cloudTabViewModel = CloudTabViewModel(r2Repository, backupRepository, preferencesManager)
 
         setContent {
             val themeMode by preferencesManager.themeModeFlow.collectAsState(initial = AppThemeMode.SYSTEM)
@@ -89,6 +91,8 @@ class MainActivity : ComponentActivity() {
                         composable(NavRoute.Gallery.route) {
                             GalleryScreen(
                                 viewModel = galleryViewModel,
+                                r2Repository = r2Repository,
+                                cloudTabViewModel = cloudTabViewModel,
                                 onOpenViewer = { index, items ->
                                     activeViewerList = items
                                     activeViewerIndex = index
@@ -113,6 +117,12 @@ class MainActivity : ComponentActivity() {
                                 initialIndex = indexArg,
                                 mediaRepository = mediaRepository,
                                 backupRepository = backupRepository,
+                                r2Repository = r2Repository,
+                                onItemDeleted = { deletedItem ->
+                                    if (deletedItem.isCloud) {
+                                        cloudTabViewModel.onItemDeletedLocally(deletedItem)
+                                    }
+                                },
                                 onBack = {
                                     galleryViewModel.loadMedia()
                                     navController.popBackStack()

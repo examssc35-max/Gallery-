@@ -23,7 +23,8 @@ enum class GalleryTab {
     PHOTOS,
     VIDEOS,
     FAVORITES,
-    ALBUMS
+    ALBUMS,
+    CLOUD
 }
 
 data class GalleryUiState(
@@ -220,6 +221,7 @@ class GalleryViewModel(
                 GalleryTab.VIDEOS -> list.filter { it.isVideo }
                 GalleryTab.FAVORITES -> list.filter { it.isFavorite }
                 GalleryTab.ALBUMS -> list
+                GalleryTab.CLOUD -> emptyList()
             }
         }
 

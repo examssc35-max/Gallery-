@@ -95,6 +95,60 @@ object AwsSigV4Signer {
         )
     }
 
+    fun generatePresignedGetUrl(
+        host: String,
+        path: String,
+        accessKeyId: String,
+        secretAccessKey: String,
+        region: String = "auto",
+        service: String = "s3",
+        expiresSeconds: Long = 86400,
+        date: Date = Date()
+    ): String {
+        val dateFormat = SimpleDateFormat("yyyyMMdd'T'HHmmss'Z'", Locale.US).apply {
+            timeZone = TimeZone.getTimeZone("UTC")
+        }
+        val dateStampFormat = SimpleDateFormat("yyyyMMdd", Locale.US).apply {
+            timeZone = TimeZone.getTimeZone("UTC")
+        }
+
+        val amzDate = dateFormat.format(date)
+        val dateStamp = dateStampFormat.format(date)
+        val credentialScope = "$dateStamp/$region/$service/aws4_request"
+
+        val canonicalUri = if (path.isEmpty()) "/" else {
+            if (!path.startsWith("/")) "/$path" else path
+        }.split("/").joinToString("/") { segment ->
+            urlEncode(segment)
+        }
+
+        // Query parameters for presigning
+        val queryParams = sortedMapOf(
+            "X-Amz-Algorithm" to ALGORITHM,
+            "X-Amz-Credential" to "$accessKeyId/$credentialScope",
+            "X-Amz-Date" to amzDate,
+            "X-Amz-Expires" to expiresSeconds.toString(),
+            "X-Amz-SignedHeaders" to "host"
+        )
+
+        val canonicalQuery = queryParams.entries.joinToString("&") { (k, v) ->
+            "${urlEncode(k)}=${urlEncode(v)}"
+        }
+
+        val canonicalHeaders = "host:$host\n"
+        val signedHeaders = "host"
+        val payloadHash = "UNSIGNED-PAYLOAD"
+
+        val canonicalRequest = "GET\n$canonicalUri\n$canonicalQuery\n$canonicalHeaders\n$signedHeaders\n$payloadHash"
+        val hashedCanonicalRequest = sha256Hex(canonicalRequest.toByteArray(StandardCharsets.UTF_8))
+        val stringToSign = "$ALGORITHM\n$amzDate\n$credentialScope\n$hashedCanonicalRequest"
+
+        val kSigning = getSignatureKey(secretAccessKey, dateStamp, region, service)
+        val signature = bytesToHex(hmacSha256(kSigning, stringToSign))
+
+        return "https://$host$canonicalUri?$canonicalQuery&X-Amz-Signature=$signature"
+    }
+
     private fun getSignatureKey(
         key: String,
         dateStamp: String,

@@ -2,7 +2,9 @@ package com.example.ui.viewer
 
 import android.content.Context
 import android.content.Intent
+import android.media.MediaScannerConnection
 import android.net.Uri
+import android.os.Environment
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -33,8 +35,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.Info
@@ -70,8 +74,10 @@ import com.example.data.local.DeletionResult
 import com.example.domain.model.MediaItem
 import com.example.domain.repository.BackupRepository
 import com.example.domain.repository.MediaRepository
+import com.example.domain.repository.R2Repository
 import com.example.domain.repository.UploadResult
 import kotlinx.coroutines.launch
+import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -82,6 +88,8 @@ fun MediaViewerScreen(
     initialIndex: Int,
     mediaRepository: MediaRepository,
     backupRepository: BackupRepository,
+    r2Repository: R2Repository? = null,
+    onItemDeleted: ((MediaItem) -> Unit)? = null,
     onBack: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -113,14 +121,19 @@ fun MediaViewerScreen(
     var showDeleteConfirmDialog by remember { mutableStateOf(false) }
     var showDetailsDialog by remember { mutableStateOf(false) }
     var isUploadingToR2 by remember { mutableStateOf(false) }
+    var isDownloadingFromR2 by remember { mutableStateOf(false) }
+    var isDownloaded by remember(currentItem.id) { mutableStateOf(false) }
     var uploadStatusText by remember { mutableStateOf<String?>(null) }
     var isAlreadyBackedUp by remember(currentItem.id) { mutableStateOf(false) }
 
     // Check backup status for current item
     LaunchedEffect(currentItem.id) {
-        isAlreadyBackedUp = backupRepository.isAlreadyBackedUp(currentItem)
+        if (!currentItem.isCloud) {
+            isAlreadyBackedUp = backupRepository.isAlreadyBackedUp(currentItem)
+        }
         isFavorite = mediaRepository.isFavorite(currentItem.id)
         isPlayingVideo = false
+        isDownloaded = false
     }
 
     // Android MediaStore system delete contract
@@ -129,6 +142,7 @@ fun MediaViewerScreen(
     ) { result ->
         if (result.resultCode == android.app.Activity.RESULT_OK) {
             scope.launch {
+                onItemDeleted?.invoke(currentItem)
                 snackbarHostState.showSnackbar("Deleted from device")
                 onBack()
             }
@@ -150,7 +164,7 @@ fun MediaViewerScreen(
             .fillMaxSize()
             .background(Color.Black)
     ) {
-        // Horizontal Pager for photos / videos
+        // Horizontal Pager for photos / videos (Supports left/right swipe, pinch-to-zoom, double-tap zoom)
         HorizontalPager(
             state = pagerState,
             modifier = Modifier.fillMaxSize()
@@ -232,12 +246,40 @@ fun MediaViewerScreen(
                         Spacer(modifier = Modifier.width(8.dp))
 
                         Column {
-                            Text(
-                                text = "${pagerState.currentPage + 1} of ${mediaList.size}",
-                                color = Color.White,
-                                fontSize = 14.sp,
-                                fontWeight = FontWeight.SemiBold
-                            )
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    text = "${pagerState.currentPage + 1} of ${mediaList.size}",
+                                    color = Color.White,
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                                if (currentItem.isCloud) {
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Surface(
+                                        shape = RoundedCornerShape(10.dp),
+                                        color = Color(0xFF0288D1).copy(alpha = 0.75f)
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Cloud,
+                                                contentDescription = "Cloud",
+                                                tint = Color.White,
+                                                modifier = Modifier.size(11.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(3.dp))
+                                            Text(
+                                                text = "Cloudflare R2",
+                                                color = Color.White,
+                                                fontSize = 10.sp,
+                                                fontWeight = FontWeight.Medium
+                                            )
+                                        }
+                                    }
+                                }
+                            }
                             Text(
                                 text = currentItem.name,
                                 color = Color.White.copy(alpha = 0.7f),
@@ -291,68 +333,130 @@ fun MediaViewerScreen(
                         horizontalArrangement = Arrangement.SpaceEvenly,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        // 1. Save to R2 Action
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            modifier = Modifier
-                                .clickable(enabled = !isUploadingToR2) {
-                                    if (isAlreadyBackedUp) {
-                                        scope.launch {
-                                            snackbarHostState.showSnackbar("Already backed up to Cloudflare R2")
-                                        }
-                                    } else {
-                                        isUploadingToR2 = true
-                                        uploadStatusText = "Uploading..."
-                                        scope.launch {
-                                            val result = backupRepository.uploadSingleMedia(currentItem)
-                                            isUploadingToR2 = false
-                                            when (result) {
-                                                is UploadResult.Success -> {
-                                                    isAlreadyBackedUp = true
-                                                    snackbarHostState.showSnackbar("Saved to Cloudflare R2!")
-                                                }
-                                                is UploadResult.AlreadyBackedUp -> {
-                                                    isAlreadyBackedUp = true
-                                                    snackbarHostState.showSnackbar("Already backed up to R2")
-                                                }
-                                                is UploadResult.Failure -> {
-                                                    snackbarHostState.showSnackbar("Upload failed: ${result.error}")
+                        // 1. Cloud Download OR Save to R2 Action
+                        if (currentItem.isCloud) {
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                modifier = Modifier
+                                    .clickable(enabled = !isDownloadingFromR2) {
+                                        val key = currentItem.cloudKey ?: currentItem.path
+                                        if (r2Repository != null && key.isNotEmpty()) {
+                                            isDownloadingFromR2 = true
+                                            scope.launch {
+                                                try {
+                                                    val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+                                                    val targetFile = File(downloadsDir, currentItem.name)
+                                                    val result = r2Repository.downloadKeyToFile(key, targetFile)
+                                                    isDownloadingFromR2 = false
+                                                    if (result.isSuccess) {
+                                                        isDownloaded = true
+                                                        MediaScannerConnection.scanFile(context, arrayOf(targetFile.absolutePath), null, null)
+                                                        snackbarHostState.showSnackbar("Downloaded to Downloads: ${currentItem.name}")
+                                                    } else {
+                                                        snackbarHostState.showSnackbar("Download failed: ${result.exceptionOrNull()?.message}")
+                                                    }
+                                                } catch (e: Exception) {
+                                                    isDownloadingFromR2 = false
+                                                    snackbarHostState.showSnackbar("Download failed: ${e.message}")
                                                 }
                                             }
                                         }
                                     }
+                                    .padding(horizontal = 10.dp, vertical = 6.dp)
+                                    .testTag("viewer_download_cloud_button")
+                            ) {
+                                if (isDownloadingFromR2) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(24.dp),
+                                        strokeWidth = 2.dp,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                } else if (isDownloaded) {
+                                    Icon(
+                                        imageVector = Icons.Default.CheckCircle,
+                                        contentDescription = "Downloaded",
+                                        tint = Color(0xFF4CAF50),
+                                        modifier = Modifier.size(24.dp)
+                                    )
+                                } else {
+                                    Icon(
+                                        imageVector = Icons.Default.Download,
+                                        contentDescription = "Download",
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(24.dp)
+                                    )
                                 }
-                                .padding(horizontal = 10.dp, vertical = 6.dp)
-                                .testTag("viewer_save_to_r2_button")
-                        ) {
-                            if (isUploadingToR2) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(24.dp),
-                                    strokeWidth = 2.dp,
-                                    color = MaterialTheme.colorScheme.primary
-                                )
-                            } else if (isAlreadyBackedUp) {
-                                Icon(
-                                    imageVector = Icons.Default.CheckCircle,
-                                    contentDescription = "Backed up",
-                                    tint = Color(0xFF4CAF50),
-                                    modifier = Modifier.size(24.dp)
-                                )
-                            } else {
-                                Icon(
-                                    imageVector = Icons.Default.CloudUpload,
-                                    contentDescription = "Save to R2",
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(24.dp)
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(
+                                    text = if (isDownloaded) "Downloaded" else "Download",
+                                    color = if (isDownloaded) Color(0xFF4CAF50) else Color.White,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Medium
                                 )
                             }
-                            Spacer(modifier = Modifier.height(2.dp))
-                            Text(
-                                text = if (isAlreadyBackedUp) "Backed Up" else "Save to R2",
-                                color = if (isAlreadyBackedUp) Color(0xFF4CAF50) else Color.White,
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Medium
-                            )
+                        } else {
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                modifier = Modifier
+                                    .clickable(enabled = !isUploadingToR2) {
+                                        if (isAlreadyBackedUp) {
+                                            scope.launch {
+                                                snackbarHostState.showSnackbar("Already backed up to Cloudflare R2")
+                                            }
+                                        } else {
+                                            isUploadingToR2 = true
+                                            uploadStatusText = "Uploading..."
+                                            scope.launch {
+                                                val result = backupRepository.uploadSingleMedia(currentItem)
+                                                isUploadingToR2 = false
+                                                when (result) {
+                                                    is UploadResult.Success -> {
+                                                        isAlreadyBackedUp = true
+                                                        snackbarHostState.showSnackbar("Saved to Cloudflare R2!")
+                                                    }
+                                                    is UploadResult.AlreadyBackedUp -> {
+                                                        isAlreadyBackedUp = true
+                                                        snackbarHostState.showSnackbar("Already backed up to R2")
+                                                    }
+                                                    is UploadResult.Failure -> {
+                                                        snackbarHostState.showSnackbar("Upload failed: ${result.error}")
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                    .padding(horizontal = 10.dp, vertical = 6.dp)
+                                    .testTag("viewer_save_to_r2_button")
+                            ) {
+                                if (isUploadingToR2) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(24.dp),
+                                        strokeWidth = 2.dp,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                } else if (isAlreadyBackedUp) {
+                                    Icon(
+                                        imageVector = Icons.Default.CheckCircle,
+                                        contentDescription = "Backed up",
+                                        tint = Color(0xFF4CAF50),
+                                        modifier = Modifier.size(24.dp)
+                                    )
+                                } else {
+                                    Icon(
+                                        imageVector = Icons.Default.CloudUpload,
+                                        contentDescription = "Save to R2",
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(24.dp)
+                                    )
+                                }
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(
+                                    text = if (isAlreadyBackedUp) "Backed Up" else "Save to R2",
+                                    color = if (isAlreadyBackedUp) Color(0xFF4CAF50) else Color.White,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Medium
+                                )
+                            }
                         }
 
                         // 2. Share Action
@@ -433,10 +537,13 @@ fun MediaViewerScreen(
     if (showDeleteConfirmDialog) {
         AlertDialog(
             onDismissRequest = { showDeleteConfirmDialog = false },
-            title = { Text("Delete Media") },
+            title = { Text(if (currentItem.isCloud) "Delete from Cloudflare R2" else "Delete Media") },
             text = {
                 Text(
-                    "Are you sure you want to delete \"${currentItem.name}\" (${formatFileSize(currentItem.size)}) from your device?"
+                    if (currentItem.isCloud)
+                        "Are you sure you want to permanently delete \"${currentItem.name}\" from your Cloudflare R2 bucket? This action cannot be undone."
+                    else
+                        "Are you sure you want to delete \"${currentItem.name}\" (${formatFileSize(currentItem.size)}) from your device?"
                 )
             },
             confirmButton = {
@@ -444,24 +551,37 @@ fun MediaViewerScreen(
                     onClick = {
                         showDeleteConfirmDialog = false
                         scope.launch {
-                            val result = mediaRepository.deleteMedia(listOf(currentItem))
-                            when (result) {
-                                is DeletionResult.Success -> {
-                                    snackbarHostState.showSnackbar("Deleted successfully")
+                            if (currentItem.isCloud) {
+                                val key = currentItem.cloudKey ?: currentItem.path
+                                val result = r2Repository?.deleteObject(key)
+                                if (result != null && result.isSuccess) {
+                                    onItemDeleted?.invoke(currentItem)
+                                    snackbarHostState.showSnackbar("Deleted from Cloudflare R2")
                                     onBack()
+                                } else {
+                                    snackbarHostState.showSnackbar("Delete failed: ${result?.exceptionOrNull()?.message ?: "Unknown error"}")
                                 }
-                                is DeletionResult.RequiresUserConsent -> {
-                                    val request = IntentSenderRequest.Builder(result.intentSender).build()
-                                    deleteIntentSenderLauncher.launch(request)
-                                }
-                                is DeletionResult.Failure -> {
-                                    snackbarHostState.showSnackbar("Delete failed: ${result.error}")
+                            } else {
+                                val result = mediaRepository.deleteMedia(listOf(currentItem))
+                                when (result) {
+                                    is DeletionResult.Success -> {
+                                        onItemDeleted?.invoke(currentItem)
+                                        snackbarHostState.showSnackbar("Deleted successfully")
+                                        onBack()
+                                    }
+                                    is DeletionResult.RequiresUserConsent -> {
+                                        val request = IntentSenderRequest.Builder(result.intentSender).build()
+                                        deleteIntentSenderLauncher.launch(request)
+                                    }
+                                    is DeletionResult.Failure -> {
+                                        snackbarHostState.showSnackbar("Delete failed: ${result.error}")
+                                    }
                                 }
                             }
                         }
                     }
                 ) {
-                    Text("Delete", color = MaterialTheme.colorScheme.error)
+                    Text("Delete", color = Color(0xFFFF5252))
                 }
             },
             dismissButton = {
@@ -472,27 +592,25 @@ fun MediaViewerScreen(
         )
     }
 
-    // File Details Dialog
+    // Media Details Dialog
     if (showDetailsDialog) {
         AlertDialog(
             onDismissRequest = { showDetailsDialog = false },
-            title = { Text("File Details") },
+            title = { Text("Details") },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    DetailRow("Name", currentItem.name)
-                    DetailRow("Type", currentItem.mimeType)
-                    DetailRow("Size", formatFileSize(currentItem.size))
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    DetailRow(label = "File Name", value = currentItem.name)
+                    DetailRow(label = "Storage", value = if (currentItem.isCloud) "Cloudflare R2" else "Internal / Device")
+                    DetailRow(label = "Size", value = formatFileSize(currentItem.size))
+                    DetailRow(label = "Type", value = currentItem.mimeType)
                     if (currentItem.isVideo && currentItem.durationMs > 0) {
-                        DetailRow("Duration", formatDuration(currentItem.durationMs))
+                        DetailRow(label = "Duration", value = formatDuration(currentItem.durationMs))
                     }
-                    if (currentItem.width > 0 && currentItem.height > 0) {
-                        DetailRow("Resolution", "${currentItem.width} × ${currentItem.height}")
+                    if (currentItem.path.isNotEmpty()) {
+                        DetailRow(label = if (currentItem.isCloud) "R2 Key" else "Path", value = currentItem.path)
                     }
-                    DetailRow("Date", formatDate(currentItem.dateAdded))
-                    DetailRow("Album", currentItem.albumName)
-                    DetailRow("Source", if (currentItem.isCloud) "Cloudflare R2" else "Local Device")
-                    if (isAlreadyBackedUp) {
-                        DetailRow("Backup Status", "Backed up to Cloudflare R2")
+                    if (currentItem.dateModified > 0) {
+                        DetailRow(label = "Date Modified", value = formatDate(currentItem.dateModified))
                     }
                 }
             },
@@ -519,11 +637,17 @@ private fun DetailRow(label: String, value: String) {
 private fun shareMedia(context: Context, item: MediaItem) {
     try {
         val shareIntent = Intent(Intent.ACTION_SEND).apply {
-            type = item.mimeType
-            putExtra(Intent.EXTRA_STREAM, Uri.parse(item.uriString))
-            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            if (item.isCloud && !item.uriString.startsWith("content://") && !item.uriString.startsWith("file://")) {
+                type = "text/plain"
+                putExtra(Intent.EXTRA_SUBJECT, item.name)
+                putExtra(Intent.EXTRA_TEXT, "Cloud file: ${item.name}\n${item.uriString}")
+            } else {
+                type = item.mimeType
+                putExtra(Intent.EXTRA_STREAM, Uri.parse(item.uriString))
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
         }
-        context.startActivity(Intent.createChooser(shareIntent, "Share Media"))
+        context.startActivity(Intent.createChooser(shareIntent, "Share ${item.name}"))
     } catch (_: Exception) {}
 }
 
