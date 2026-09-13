@@ -71,6 +71,8 @@ import com.example.data.local.PreferencesManager
 import com.example.data.local.R2Credentials
 import com.example.data.local.SortOrder
 import com.example.domain.repository.R2Repository
+import com.example.ui.storage.StorageUsageSettingsSection
+import com.example.ui.storage.StorageUsageViewModel
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -78,6 +80,8 @@ import kotlinx.coroutines.launch
 fun SettingsScreen(
     r2Repository: R2Repository,
     preferencesManager: PreferencesManager,
+    storageUsageViewModel: StorageUsageViewModel? = null,
+    onNavigateToStorageUsage: () -> Unit = {},
     onBack: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
@@ -339,6 +343,16 @@ fun SettingsScreen(
                             }
                         }
                     }
+                }
+            }
+
+            // Storage Usage Section under Cloudflare R2
+            if (storageUsageViewModel != null) {
+                item {
+                    StorageUsageSettingsSection(
+                        viewModel = storageUsageViewModel,
+                        onViewDetailsClick = onNavigateToStorageUsage
+                    )
                 }
             }
 

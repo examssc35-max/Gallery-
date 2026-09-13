@@ -9,6 +9,8 @@ import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import com.example.domain.model.MediaCategory
+import com.example.domain.model.StorageUsage
 import com.example.security.KeystoreManager
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
@@ -69,6 +71,18 @@ class PreferencesManager(
         val KEY_R2_BUCKET_NAME = stringPreferencesKey("r2_bucket_name")
         val KEY_R2_ENDPOINT = stringPreferencesKey("r2_endpoint")
         val KEY_R2_IS_VERIFIED = booleanPreferencesKey("r2_is_verified")
+
+        // Cloud Storage Usage Cache
+        val KEY_STORAGE_HAS_CACHE = booleanPreferencesKey("storage_has_cache")
+        val KEY_STORAGE_TOTAL_BYTES = longPreferencesKey("storage_total_bytes")
+        val KEY_STORAGE_PHOTO_BYTES = longPreferencesKey("storage_photo_bytes")
+        val KEY_STORAGE_VIDEO_BYTES = longPreferencesKey("storage_video_bytes")
+        val KEY_STORAGE_OTHER_BYTES = longPreferencesKey("storage_other_bytes")
+        val KEY_STORAGE_PHOTO_COUNT = intPreferencesKey("storage_photo_count")
+        val KEY_STORAGE_VIDEO_COUNT = intPreferencesKey("storage_video_count")
+        val KEY_STORAGE_OTHER_COUNT = intPreferencesKey("storage_other_count")
+        val KEY_STORAGE_TOTAL_COUNT = intPreferencesKey("storage_total_count")
+        val KEY_STORAGE_LAST_UPDATED = longPreferencesKey("storage_last_updated")
     }
 
     val gridColumnsFlow: Flow<Int> = context.dataStore.data.map { prefs ->
@@ -189,5 +203,106 @@ class PreferencesManager(
             prefs[KEY_R2_IS_VERIFIED] = false
         }
         keystoreManager.clearKey()
+        clearStorageUsageCache()
+    }
+
+    val cachedStorageUsageFlow: Flow<StorageUsage?> = context.dataStore.data.map { prefs ->
+        if (prefs[KEY_STORAGE_HAS_CACHE] == true) {
+            val photoBytes = prefs[KEY_STORAGE_PHOTO_BYTES] ?: 0L
+            val videoBytes = prefs[KEY_STORAGE_VIDEO_BYTES] ?: 0L
+            val otherBytes = prefs[KEY_STORAGE_OTHER_BYTES] ?: 0L
+            val photoCount = prefs[KEY_STORAGE_PHOTO_COUNT] ?: 0
+            val videoCount = prefs[KEY_STORAGE_VIDEO_COUNT] ?: 0
+            val otherCount = prefs[KEY_STORAGE_OTHER_COUNT] ?: 0
+            val totalBytes = prefs[KEY_STORAGE_TOTAL_BYTES] ?: (photoBytes + videoBytes + otherBytes)
+            val totalCount = prefs[KEY_STORAGE_TOTAL_COUNT] ?: (photoCount + videoCount + otherCount)
+            val lastUpdated = prefs[KEY_STORAGE_LAST_UPDATED] ?: 0L
+
+            StorageUsage(
+                totalBytes = totalBytes,
+                photoBytes = photoBytes,
+                videoBytes = videoBytes,
+                otherBytes = otherBytes,
+                photoCount = photoCount,
+                videoCount = videoCount,
+                otherCount = otherCount,
+                totalObjectCount = totalCount,
+                lastUpdated = lastUpdated,
+                isCached = true
+            )
+        } else {
+            null
+        }
+    }
+
+    suspend fun saveStorageUsage(usage: StorageUsage) {
+        context.dataStore.edit { prefs ->
+            prefs[KEY_STORAGE_HAS_CACHE] = true
+            prefs[KEY_STORAGE_TOTAL_BYTES] = usage.totalBytes
+            prefs[KEY_STORAGE_PHOTO_BYTES] = usage.photoBytes
+            prefs[KEY_STORAGE_VIDEO_BYTES] = usage.videoBytes
+            prefs[KEY_STORAGE_OTHER_BYTES] = usage.otherBytes
+            prefs[KEY_STORAGE_PHOTO_COUNT] = usage.photoCount
+            prefs[KEY_STORAGE_VIDEO_COUNT] = usage.videoCount
+            prefs[KEY_STORAGE_OTHER_COUNT] = usage.otherCount
+            prefs[KEY_STORAGE_TOTAL_COUNT] = usage.totalObjectCount
+            prefs[KEY_STORAGE_LAST_UPDATED] = usage.lastUpdated
+        }
+    }
+
+    suspend fun updateStorageUsageIncrement(
+        bytesDelta: Long,
+        category: MediaCategory,
+        countDelta: Int = 1
+    ) {
+        context.dataStore.edit { prefs ->
+            if (prefs[KEY_STORAGE_HAS_CACHE] == true) {
+                var photoBytes = prefs[KEY_STORAGE_PHOTO_BYTES] ?: 0L
+                var videoBytes = prefs[KEY_STORAGE_VIDEO_BYTES] ?: 0L
+                var otherBytes = prefs[KEY_STORAGE_OTHER_BYTES] ?: 0L
+                var photoCount = prefs[KEY_STORAGE_PHOTO_COUNT] ?: 0
+                var videoCount = prefs[KEY_STORAGE_VIDEO_COUNT] ?: 0
+                var otherCount = prefs[KEY_STORAGE_OTHER_COUNT] ?: 0
+
+                when (category) {
+                    MediaCategory.PHOTO -> {
+                        photoBytes = (photoBytes + bytesDelta).coerceAtLeast(0L)
+                        photoCount = (photoCount + countDelta).coerceAtLeast(0)
+                    }
+                    MediaCategory.VIDEO -> {
+                        videoBytes = (videoBytes + bytesDelta).coerceAtLeast(0L)
+                        videoCount = (videoCount + countDelta).coerceAtLeast(0)
+                    }
+                    MediaCategory.OTHER -> {
+                        otherBytes = (otherBytes + bytesDelta).coerceAtLeast(0L)
+                        otherCount = (otherCount + countDelta).coerceAtLeast(0)
+                    }
+                }
+                prefs[KEY_STORAGE_PHOTO_BYTES] = photoBytes
+                prefs[KEY_STORAGE_VIDEO_BYTES] = videoBytes
+                prefs[KEY_STORAGE_OTHER_BYTES] = otherBytes
+                prefs[KEY_STORAGE_TOTAL_BYTES] = photoBytes + videoBytes + otherBytes
+                prefs[KEY_STORAGE_PHOTO_COUNT] = photoCount
+                prefs[KEY_STORAGE_VIDEO_COUNT] = videoCount
+                prefs[KEY_STORAGE_OTHER_COUNT] = otherCount
+                prefs[KEY_STORAGE_TOTAL_COUNT] = photoCount + videoCount + otherCount
+                prefs[KEY_STORAGE_LAST_UPDATED] = System.currentTimeMillis()
+            }
+        }
+    }
+
+    suspend fun clearStorageUsageCache() {
+        context.dataStore.edit { prefs ->
+            prefs.remove(KEY_STORAGE_HAS_CACHE)
+            prefs.remove(KEY_STORAGE_TOTAL_BYTES)
+            prefs.remove(KEY_STORAGE_PHOTO_BYTES)
+            prefs.remove(KEY_STORAGE_VIDEO_BYTES)
+            prefs.remove(KEY_STORAGE_OTHER_BYTES)
+            prefs.remove(KEY_STORAGE_PHOTO_COUNT)
+            prefs.remove(KEY_STORAGE_VIDEO_COUNT)
+            prefs.remove(KEY_STORAGE_OTHER_COUNT)
+            prefs.remove(KEY_STORAGE_TOTAL_COUNT)
+            prefs.remove(KEY_STORAGE_LAST_UPDATED)
+        }
     }
 }

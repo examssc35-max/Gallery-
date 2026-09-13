@@ -48,6 +48,7 @@ import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PermMedia
 import androidx.compose.material.icons.filled.PhotoLibrary
+import androidx.compose.material.icons.filled.PieChart
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SelectAll
 import androidx.compose.material.icons.filled.Settings
@@ -122,6 +123,7 @@ fun GalleryScreen(
     onNavigateToDuplicates: () -> Unit,
     onNavigateToStorage: () -> Unit,
     onNavigateToTrash: () -> Unit,
+    onNavigateToCloudStorageUsage: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -474,6 +476,14 @@ fun GalleryScreen(
                                         }
                                     )
                                     DropdownMenuItem(
+                                        leadingIcon = { Icon(Icons.Default.PieChart, contentDescription = null) },
+                                        text = { Text("Cloud Storage Usage") },
+                                        onClick = {
+                                            showOverflowMenu = false
+                                            onNavigateToCloudStorageUsage()
+                                        }
+                                    )
+                                    DropdownMenuItem(
                                         leadingIcon = { Icon(Icons.Default.Settings, contentDescription = null) },
                                         text = { Text("Settings & R2") },
                                         onClick = {
@@ -586,6 +596,7 @@ fun GalleryScreen(
                                 r2Repository = r2Repository,
                                 onOpenViewer = onOpenViewer,
                                 onConnectR2 = onNavigateToSettings,
+                                onNavigateToStorageUsage = onNavigateToCloudStorageUsage,
                                 modifier = Modifier.fillMaxSize()
                             )
                         }

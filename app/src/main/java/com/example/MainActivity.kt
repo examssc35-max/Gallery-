@@ -28,6 +28,7 @@ import com.example.data.repository.BackupRepositoryImpl
 import com.example.data.repository.MediaRepositoryImpl
 import com.example.data.repository.R2RepositoryImpl
 import com.example.domain.model.MediaItem
+import com.example.domain.usecase.GetStorageUsageUseCase
 import com.example.navigation.NavRoute
 import com.example.ui.backup.BackupScreen
 import com.example.ui.backup.BackupViewModel
@@ -38,7 +39,9 @@ import com.example.ui.duplicate.DuplicateFinderScreen
 import com.example.ui.gallery.GalleryScreen
 import com.example.ui.gallery.GalleryViewModel
 import com.example.ui.settings.SettingsScreen
+import com.example.ui.storage.CloudStorageUsageScreen
 import com.example.ui.storage.StorageAnalyzerScreen
+import com.example.ui.storage.StorageUsageViewModel
 import com.example.ui.theme.MyApplicationTheme
 import com.example.ui.trash.TrashScreen
 import com.example.ui.viewer.MediaViewerScreen
@@ -67,6 +70,8 @@ class MainActivity : ComponentActivity() {
         val backupViewModel = BackupViewModel(backupRepository, r2Repository)
         val cloudViewModel = CloudBrowserViewModel(r2Repository)
         val cloudTabViewModel = CloudTabViewModel(r2Repository, backupRepository, preferencesManager)
+        val getStorageUsageUseCase = GetStorageUsageUseCase(r2Repository)
+        val storageUsageViewModel = StorageUsageViewModel(getStorageUsageUseCase, r2Repository)
 
         setContent {
             val themeMode by preferencesManager.themeModeFlow.collectAsState(initial = AppThemeMode.SYSTEM)
@@ -103,7 +108,8 @@ class MainActivity : ComponentActivity() {
                                 onNavigateToSettings = { navController.navigate(NavRoute.Settings.route) },
                                 onNavigateToDuplicates = { navController.navigate(NavRoute.Duplicates.route) },
                                 onNavigateToStorage = { navController.navigate(NavRoute.Storage.route) },
-                                onNavigateToTrash = { navController.navigate(NavRoute.Trash.route) }
+                                onNavigateToTrash = { navController.navigate(NavRoute.Trash.route) },
+                                onNavigateToCloudStorageUsage = { navController.navigate(NavRoute.CloudStorageUsage.route) }
                             )
                         }
 
@@ -150,6 +156,21 @@ class MainActivity : ComponentActivity() {
                             SettingsScreen(
                                 r2Repository = r2Repository,
                                 preferencesManager = preferencesManager,
+                                storageUsageViewModel = storageUsageViewModel,
+                                onNavigateToStorageUsage = { navController.navigate(NavRoute.CloudStorageUsage.route) },
+                                onBack = { navController.popBackStack() }
+                            )
+                        }
+
+                        composable(NavRoute.CloudStorageUsage.route) {
+                            CloudStorageUsageScreen(
+                                viewModel = storageUsageViewModel,
+                                onNavigateToSettings = { navController.navigate(NavRoute.Settings.route) },
+                                onCategoryClick = { category ->
+                                    cloudTabViewModel.setCategoryFilter(category)
+                                    navController.popBackStack(NavRoute.Gallery.route, inclusive = false)
+                                    galleryViewModel.selectTab(com.example.ui.gallery.GalleryTab.CLOUD)
+                                },
                                 onBack = { navController.popBackStack() }
                             )
                         }

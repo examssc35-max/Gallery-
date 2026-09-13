@@ -3,6 +3,7 @@ package com.example.domain.repository
 import com.example.data.local.R2Credentials
 import com.example.domain.model.MediaItem
 import com.example.domain.model.R2Item
+import com.example.domain.model.StorageUsage
 import kotlinx.coroutines.flow.Flow
 import java.io.File
 
@@ -15,9 +16,14 @@ data class CloudMediaPage(
 
 interface R2Repository {
     val credentialsFlow: Flow<R2Credentials>
+    val cachedStorageUsageFlow: Flow<StorageUsage?>
     suspend fun getCredentials(): R2Credentials
+    suspend fun getCachedStorageUsage(): StorageUsage?
     suspend fun testConnection(customCredentials: R2Credentials? = null): Result<Boolean>
     suspend fun listObjects(prefix: String = ""): Result<List<R2Item>>
+    suspend fun calculateStorageUsage(
+        onProgress: (scannedObjects: Int, scannedBytes: Long) -> Unit = { _, _ -> }
+    ): Result<StorageUsage>
     suspend fun listCloudMediaPage(
         prefix: String = "",
         continuationToken: String? = null,

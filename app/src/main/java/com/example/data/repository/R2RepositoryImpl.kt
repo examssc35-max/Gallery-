@@ -5,8 +5,11 @@ import android.net.Uri
 import com.example.data.cloudflare.R2Client
 import com.example.data.local.PreferencesManager
 import com.example.data.local.R2Credentials
+import com.example.domain.model.MediaCategory
+import com.example.domain.model.MediaClassifier
 import com.example.domain.model.MediaItem
 import com.example.domain.model.R2Item
+import com.example.domain.model.StorageUsage
 import com.example.domain.repository.CloudMediaPage
 import com.example.domain.repository.R2Repository
 import kotlinx.coroutines.Dispatchers
@@ -22,9 +25,30 @@ class R2RepositoryImpl(
 ) : R2Repository {
 
     override val credentialsFlow: Flow<R2Credentials> = preferencesManager.r2CredentialsFlow
+    override val cachedStorageUsageFlow: Flow<StorageUsage?> = preferencesManager.cachedStorageUsageFlow
 
     override suspend fun getCredentials(): R2Credentials {
         return preferencesManager.r2CredentialsFlow.first()
+    }
+
+    override suspend fun getCachedStorageUsage(): StorageUsage? {
+        return preferencesManager.cachedStorageUsageFlow.first()
+    }
+
+    override suspend fun calculateStorageUsage(
+        onProgress: (scannedObjects: Int, scannedBytes: Long) -> Unit
+    ): Result<StorageUsage> = withContext(Dispatchers.IO) {
+        val creds = getCredentials()
+        if (creds.secretAccessKey.isEmpty() || creds.bucketName.isEmpty()) {
+            return@withContext Result.failure(IllegalStateException("Cloud storage isn't connected."))
+        }
+
+        val result = r2Client.fetchStorageUsage(creds, onProgress)
+        if (result.isSuccess) {
+            val usage = result.getOrThrow()
+            preferencesManager.saveStorageUsage(usage)
+        }
+        result
     }
 
     override suspend fun testConnection(customCredentials: R2Credentials?): Result<Boolean> {
@@ -160,6 +184,12 @@ class R2RepositoryImpl(
         )
 
         if (uploadResult.isSuccess) {
+            val category = if (item.isVideo) MediaCategory.VIDEO else MediaCategory.PHOTO
+            preferencesManager.updateStorageUsageIncrement(
+                bytesDelta = item.size,
+                category = category,
+                countDelta = 1
+            )
             Result.success(remoteKey)
         } else {
             Result.failure(uploadResult.exceptionOrNull() ?: Exception("Unknown upload error"))
@@ -192,7 +222,16 @@ class R2RepositoryImpl(
 
     override suspend fun deleteObject(key: String): Result<Unit> = withContext(Dispatchers.IO) {
         val creds = getCredentials()
-        r2Client.deleteObject(creds, key)
+        val result = r2Client.deleteObject(creds, key)
+        if (result.isSuccess) {
+            val category = MediaClassifier.classify(key)
+            preferencesManager.updateStorageUsageIncrement(
+                bytesDelta = 0L,
+                category = category,
+                countDelta = -1
+            )
+        }
+        result
     }
 
     override suspend fun saveCredentials(credentials: R2Credentials) {

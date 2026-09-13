@@ -45,6 +45,7 @@ import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.GridView
+import androidx.compose.material.icons.filled.PieChart
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SelectAll
@@ -105,6 +106,7 @@ fun CloudTabScreen(
     r2Repository: R2Repository,
     onOpenViewer: (initialIndex: Int, items: List<MediaItem>) -> Unit,
     onConnectR2: () -> Unit,
+    onNavigateToStorageUsage: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -147,7 +149,9 @@ fun CloudTabScreen(
                 onNavigateUp = { viewModel.navigateUp() },
                 onRefresh = { viewModel.refresh() },
                 onToggleFlatten = { viewModel.toggleFlattenFolders() },
-                onShowSortMenu = { showSortMenu = true }
+                onShowSortMenu = { showSortMenu = true },
+                onNavigateToStorageUsage = onNavigateToStorageUsage,
+                onClearCategoryFilter = { viewModel.setCategoryFilter(null) }
             )
 
             // Sort Menu Dropdown
@@ -453,7 +457,9 @@ private fun CloudSubHeader(
     onNavigateUp: () -> Unit,
     onRefresh: () -> Unit,
     onToggleFlatten: () -> Unit,
-    onShowSortMenu: () -> Unit
+    onShowSortMenu: () -> Unit,
+    onNavigateToStorageUsage: () -> Unit = {},
+    onClearCategoryFilter: () -> Unit = {}
 ) {
     Surface(
         color = MaterialTheme.colorScheme.surfaceContainerLow,
@@ -565,12 +571,51 @@ private fun CloudSubHeader(
                         }
 
                         IconButton(
+                            onClick = onNavigateToStorageUsage,
+                            modifier = Modifier.size(36.dp).testTag("cloud_storage_usage_header_button")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.PieChart,
+                                contentDescription = "Storage Usage",
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+
+                        IconButton(
                             onClick = onRefresh,
                             modifier = Modifier.size(36.dp)
                         ) {
                             Icon(Icons.Default.Refresh, contentDescription = "Refresh", modifier = Modifier.size(20.dp))
                         }
                     }
+                }
+            }
+
+            // Category Filter Active Banner
+            if (uiState.categoryFilter != null) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    FilterChip(
+                        selected = true,
+                        onClick = onClearCategoryFilter,
+                        label = {
+                            Text(
+                                text = "Filtered: ${uiState.categoryFilter.name.lowercase().replaceFirstChar { it.uppercase() }}"
+                            )
+                        },
+                        trailingIcon = {
+                            Icon(
+                                imageVector = Icons.Default.Close,
+                                contentDescription = "Clear category filter",
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                    )
                 }
             }
         }

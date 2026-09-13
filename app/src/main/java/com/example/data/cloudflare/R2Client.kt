@@ -2,7 +2,10 @@ package com.example.data.cloudflare
 
 import android.util.Xml
 import com.example.data.local.R2Credentials
+import com.example.domain.model.MediaCategory
+import com.example.domain.model.MediaClassifier
 import com.example.domain.model.R2Item
+import com.example.domain.model.StorageUsage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
@@ -195,6 +198,90 @@ class R2Client(
         prefix: String = "",
         delimiter: String = "/"
     ): Result<List<R2Item>> = listObjectsPage(credentials, prefix, delimiter, 1000).map { it.items }
+
+    suspend fun fetchStorageUsage(
+        credentials: R2Credentials,
+        onProgress: (scannedObjects: Int, scannedBytes: Long) -> Unit = { _, _ -> }
+    ): Result<StorageUsage> = withContext(Dispatchers.IO) {
+        try {
+            if (credentials.bucketName.isBlank() || credentials.secretAccessKey.isBlank()) {
+                return@withContext Result.failure(IllegalStateException("Cloudflare R2 is not connected"))
+            }
+
+            var totalBytes = 0L
+            var photoBytes = 0L
+            var videoBytes = 0L
+            var otherBytes = 0L
+            var photoCount = 0
+            var videoCount = 0
+            var otherCount = 0
+            var totalObjects = 0
+
+            var continuationToken: String? = null
+
+            do {
+                // Flat listing: delimiter = "" means ALL objects in bucket across all folders/prefixes are listed without folding into CommonPrefixes.
+                // maxKeys = 1000 retrieves up to 1000 object headers per S3 call without downloading any file bodies.
+                val pageResult = listObjectsPage(
+                    credentials = credentials,
+                    prefix = "",
+                    delimiter = "",
+                    maxKeys = 1000,
+                    continuationToken = continuationToken
+                )
+
+                if (pageResult.isFailure) {
+                    val error = pageResult.exceptionOrNull() ?: Exception("Failed to list objects for storage calculation")
+                    return@withContext Result.failure(error)
+                }
+
+                val page = pageResult.getOrThrow()
+                for (item in page.items) {
+                    // S3 folder markers (keys ending with '/' and 0 bytes) are directories, not files
+                    if (item.isFolder || (item.key.endsWith("/") && item.size == 0L)) {
+                        continue
+                    }
+                    val size = item.size.coerceAtLeast(0L)
+                    val category = MediaClassifier.classify(item.key, item.mimeType)
+                    when (category) {
+                        MediaCategory.PHOTO -> {
+                            photoBytes += size
+                            photoCount++
+                        }
+                        MediaCategory.VIDEO -> {
+                            videoBytes += size
+                            videoCount++
+                        }
+                        MediaCategory.OTHER -> {
+                            otherBytes += size
+                            otherCount++
+                        }
+                    }
+                    totalBytes += size
+                    totalObjects++
+                }
+
+                onProgress(totalObjects, totalBytes)
+                continuationToken = if (page.isTruncated) page.nextContinuationToken else null
+            } while (!continuationToken.isNullOrBlank())
+
+            val result = StorageUsage(
+                totalBytes = totalBytes,
+                photoBytes = photoBytes,
+                videoBytes = videoBytes,
+                otherBytes = otherBytes,
+                photoCount = photoCount,
+                videoCount = videoCount,
+                otherCount = otherCount,
+                totalObjectCount = totalObjects,
+                lastUpdated = System.currentTimeMillis(),
+                isCached = false
+            )
+            Result.success(result)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
 
     suspend fun uploadStream(
         credentials: R2Credentials,
@@ -496,11 +583,18 @@ class R2Client(
             "png" -> "image/png"
             "gif" -> "image/gif"
             "webp" -> "image/webp"
+            "heic" -> "image/heic"
+            "heif" -> "image/heif"
+            "avif" -> "image/avif"
+            "bmp" -> "image/bmp"
+            "dng" -> "image/x-adobe-dng"
             "mp4" -> "video/mp4"
             "mov" -> "video/quicktime"
             "mkv" -> "video/x-matroska"
             "webm" -> "video/webm"
             "avi" -> "video/x-msvideo"
+            "3gp", "3gpp" -> "video/3gpp"
+            "m4v" -> "video/x-m4v"
             "pdf" -> "application/pdf"
             else -> "application/octet-stream"
         }

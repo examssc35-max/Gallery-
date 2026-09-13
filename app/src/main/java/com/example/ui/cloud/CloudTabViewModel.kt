@@ -4,6 +4,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.data.local.PreferencesManager
 import com.example.data.local.SortOrder
+import com.example.domain.model.MediaCategory
+import com.example.domain.model.MediaClassifier
 import com.example.domain.model.MediaItem
 import com.example.domain.repository.BackupRepository
 import com.example.domain.repository.R2Repository
@@ -23,6 +25,7 @@ data class CloudTabUiState(
     val folders: List<String> = emptyList(),
     val currentPrefix: String = "",
     val searchQuery: String = "",
+    val categoryFilter: MediaCategory? = null,
     val sortOrder: SortOrder = SortOrder.DATE_DESC,
     val selectedIds: Set<Long> = emptySet(),
     val isSelectionMode: Boolean = false,
@@ -263,9 +266,19 @@ class CloudTabViewModel(
         }
     }
 
+    fun setCategoryFilter(category: MediaCategory?) {
+        _uiState.value = _uiState.value.copy(categoryFilter = category)
+    }
+
     fun getFilteredItems(): List<MediaItem> {
         val state = _uiState.value
         var list = state.items
+
+        if (state.categoryFilter != null) {
+            list = list.filter {
+                MediaClassifier.classify(it.cloudKey ?: it.path, it.mimeType) == state.categoryFilter
+            }
+        }
 
         if (state.searchQuery.isNotBlank()) {
             list = list.filter { it.name.contains(state.searchQuery, ignoreCase = true) }

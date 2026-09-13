@@ -10,5 +10,6 @@ sealed class NavRoute(val route: String) {
     data object Settings : NavRoute("settings")
     data object Duplicates : NavRoute("duplicates")
     data object Storage : NavRoute("storage")
+    data object CloudStorageUsage : NavRoute("cloud_storage_usage")
     data object Trash : NavRoute("trash")
 }
