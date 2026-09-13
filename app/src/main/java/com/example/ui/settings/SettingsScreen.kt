@@ -19,6 +19,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.Delete
@@ -441,6 +442,146 @@ fun SettingsScreen(
                                         label = { Text(label) }
                                     )
                                 }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // AI Assistant & Privacy Settings
+            item {
+                val aiProviderMode by preferencesManager.aiProviderModeFlow.collectAsState(initial = com.example.ai.model.AiProviderType.ON_DEVICE)
+                val storedApiKey by preferencesManager.aiGeminiApiKeyFlow.collectAsState(initial = "")
+                var tempApiKey by remember(storedApiKey) { mutableStateOf(storedApiKey) }
+                var showApiKey by remember { mutableStateOf(false) }
+
+                Card(
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+                    modifier = Modifier.fillMaxWidth().testTag("ai_settings_card")
+                ) {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.AutoAwesome,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "AI Assistant & Privacy",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+
+                        Text(
+                            text = "CloudGallery includes an optional AI Assistant to search files, check storage, test R2 connection, and run backups.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+
+                        Text(
+                            text = "Active AI Provider:",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.SemiBold
+                        )
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            FilterChip(
+                                selected = aiProviderMode == com.example.ai.model.AiProviderType.ON_DEVICE,
+                                onClick = {
+                                    scope.launch { preferencesManager.setAiProviderMode(com.example.ai.model.AiProviderType.ON_DEVICE) }
+                                },
+                                label = { Text("On-Device (100% Private)") },
+                                modifier = Modifier.weight(1f)
+                            )
+                            FilterChip(
+                                selected = aiProviderMode == com.example.ai.model.AiProviderType.GEMINI_BYOK,
+                                onClick = {
+                                    scope.launch { preferencesManager.setAiProviderMode(com.example.ai.model.AiProviderType.GEMINI_BYOK) }
+                                },
+                                label = { Text("Gemini (BYOK)") },
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+
+                        if (aiProviderMode == com.example.ai.model.AiProviderType.GEMINI_BYOK) {
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                OutlinedTextField(
+                                    value = tempApiKey,
+                                    onValueChange = { tempApiKey = it },
+                                    label = { Text("Gemini API Key (BYOK)") },
+                                    placeholder = { Text("AIzaSy...") },
+                                    singleLine = true,
+                                    visualTransformation = if (showApiKey) VisualTransformation.None else PasswordVisualTransformation(),
+                                    trailingIcon = {
+                                        IconButton(onClick = { showApiKey = !showApiKey }) {
+                                            Icon(
+                                                imageVector = if (showApiKey) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                                                contentDescription = if (showApiKey) "Hide API Key" else "Show API Key"
+                                            )
+                                        }
+                                    },
+                                    modifier = Modifier.fillMaxWidth().testTag("gemini_api_key_input")
+                                )
+
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Button(
+                                        onClick = {
+                                            scope.launch {
+                                                preferencesManager.setAiGeminiApiKey(tempApiKey)
+                                                snackbarHostState.showSnackbar("Gemini API key saved securely in Android Keystore")
+                                            }
+                                        },
+                                        modifier = Modifier.weight(1f)
+                                    ) {
+                                        Text("Save Key")
+                                    }
+                                    if (storedApiKey.isNotBlank()) {
+                                        OutlinedButton(
+                                            onClick = {
+                                                scope.launch {
+                                                    preferencesManager.clearAiGeminiApiKey()
+                                                    tempApiKey = ""
+                                                    snackbarHostState.showSnackbar("Gemini API key cleared")
+                                                }
+                                            },
+                                            modifier = Modifier.weight(1f)
+                                        ) {
+                                            Text("Clear")
+                                        }
+                                    }
+                                }
+
+                                Text(
+                                    text = "Privacy Note: Photos, videos, and R2 credentials are NEVER sent to Gemini. Only user queries and tool function calls are processed.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        } else {
+                            Surface(
+                                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f),
+                                shape = RoundedCornerShape(8.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text(
+                                    text = "On-device mode runs entirely on your local phone CPU. Zero network calls are made. Complete data isolation.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                    modifier = Modifier.padding(10.dp)
+                                )
                             }
                         }
                     }

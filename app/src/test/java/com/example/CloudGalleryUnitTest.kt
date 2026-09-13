@@ -152,5 +152,115 @@ class CloudGalleryUnitTest {
         val outOfBoundsHigh = (99).coerceIn(0, mediaList.size - 1)
         assertEquals(2, outOfBoundsHigh)
     }
+
+    @Test
+    fun `test local rule-based AI provider maps video query to searchLocalMedia tool call`() = runBlocking {
+        val provider = com.example.ai.provider.LocalRuleBasedAiProvider()
+        val request = com.example.ai.provider.AiRequest(
+            messages = listOf(
+                com.example.ai.model.AiMessage(
+                    sender = com.example.ai.model.MessageSender.USER,
+                    text = "Find my videos"
+                )
+            ),
+            systemInstruction = ""
+        )
+
+        val response = provider.generateResponse(request)
+        assertNotNull(response.toolCall)
+        assertEquals("searchLocalMedia", response.toolCall?.toolName)
+        assertEquals("video", response.toolCall?.arguments?.get("mediaType"))
+    }
+
+    @Test
+    fun `test local rule-based AI provider maps storage usage query to getStorageUsage tool call`() = runBlocking {
+        val provider = com.example.ai.provider.LocalRuleBasedAiProvider()
+        val request = com.example.ai.provider.AiRequest(
+            messages = listOf(
+                com.example.ai.model.AiMessage(
+                    sender = com.example.ai.model.MessageSender.USER,
+                    text = "How much R2 storage am I using?"
+                )
+            ),
+            systemInstruction = ""
+        )
+
+        val response = provider.generateResponse(request)
+        assertNotNull(response.toolCall)
+        assertEquals("getStorageUsage", response.toolCall?.toolName)
+    }
+
+    @Test
+    fun `test local rule-based AI provider maps R2 connection test`() = runBlocking {
+        val provider = com.example.ai.provider.LocalRuleBasedAiProvider()
+        val request = com.example.ai.provider.AiRequest(
+            messages = listOf(
+                com.example.ai.model.AiMessage(
+                    sender = com.example.ai.model.MessageSender.USER,
+                    text = "Check my R2 connection"
+                )
+            ),
+            systemInstruction = ""
+        )
+
+        val response = provider.generateResponse(request)
+        assertNotNull(response.toolCall)
+        assertEquals("testR2Connection", response.toolCall?.toolName)
+    }
+
+    @Test
+    fun `test local rule-based AI provider maps backup request`() = runBlocking {
+        val provider = com.example.ai.provider.LocalRuleBasedAiProvider()
+        val request = com.example.ai.provider.AiRequest(
+            messages = listOf(
+                com.example.ai.model.AiMessage(
+                    sender = com.example.ai.model.MessageSender.USER,
+                    text = "Back up my videos"
+                )
+            ),
+            systemInstruction = ""
+        )
+
+        val response = provider.generateResponse(request)
+        assertNotNull(response.toolCall)
+        assertEquals("startBackup", response.toolCall?.toolName)
+        assertEquals("true", response.toolCall?.arguments?.get("onlyVideos"))
+    }
+
+    @Test
+    fun `test local rule-based AI provider maps failure diagnostic`() = runBlocking {
+        val provider = com.example.ai.provider.LocalRuleBasedAiProvider()
+        val request = com.example.ai.provider.AiRequest(
+            messages = listOf(
+                com.example.ai.model.AiMessage(
+                    sender = com.example.ai.model.MessageSender.USER,
+                    text = "Why did my upload fail?"
+                )
+            ),
+            systemInstruction = ""
+        )
+
+        val response = provider.generateResponse(request)
+        assertNotNull(response.toolCall)
+        assertEquals("explainUploadFailure", response.toolCall?.toolName)
+    }
+
+    @Test
+    fun `test local rule-based AI provider maps duplicate finder`() = runBlocking {
+        val provider = com.example.ai.provider.LocalRuleBasedAiProvider()
+        val request = com.example.ai.provider.AiRequest(
+            messages = listOf(
+                com.example.ai.model.AiMessage(
+                    sender = com.example.ai.model.MessageSender.USER,
+                    text = "Find duplicate files"
+                )
+            ),
+            systemInstruction = ""
+        )
+
+        val response = provider.generateResponse(request)
+        assertNotNull(response.toolCall)
+        assertEquals("findDuplicates", response.toolCall?.toolName)
+    }
 }
 

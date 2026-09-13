@@ -83,6 +83,10 @@ class PreferencesManager(
         val KEY_STORAGE_OTHER_COUNT = intPreferencesKey("storage_other_count")
         val KEY_STORAGE_TOTAL_COUNT = intPreferencesKey("storage_total_count")
         val KEY_STORAGE_LAST_UPDATED = longPreferencesKey("storage_last_updated")
+
+        // AI Assistant Settings
+        val KEY_AI_PROVIDER_MODE = stringPreferencesKey("ai_provider_mode")
+        val KEY_AI_GEMINI_API_KEY = stringPreferencesKey("ai_gemini_api_key")
     }
 
     val gridColumnsFlow: Flow<Int> = context.dataStore.data.map { prefs ->
@@ -303,6 +307,51 @@ class PreferencesManager(
             prefs.remove(KEY_STORAGE_OTHER_COUNT)
             prefs.remove(KEY_STORAGE_TOTAL_COUNT)
             prefs.remove(KEY_STORAGE_LAST_UPDATED)
+        }
+    }
+
+    val aiProviderModeFlow: Flow<com.example.ai.model.AiProviderType> = context.dataStore.data.map { prefs ->
+        try {
+            val modeStr = prefs[KEY_AI_PROVIDER_MODE] ?: com.example.ai.model.AiProviderType.ON_DEVICE.name
+            com.example.ai.model.AiProviderType.valueOf(modeStr)
+        } catch (_: Exception) {
+            com.example.ai.model.AiProviderType.ON_DEVICE
+        }
+    }
+
+    val aiGeminiApiKeyFlow: Flow<String> = context.dataStore.data.map { prefs ->
+        val encryptedKey = prefs[KEY_AI_GEMINI_API_KEY] ?: ""
+        if (encryptedKey.isNotEmpty()) {
+            keystoreManager.decrypt(encryptedKey)
+        } else {
+            ""
+        }
+    }
+
+    suspend fun setAiProviderMode(mode: com.example.ai.model.AiProviderType) {
+        context.dataStore.edit { prefs ->
+            prefs[KEY_AI_PROVIDER_MODE] = mode.name
+        }
+    }
+
+    suspend fun setAiGeminiApiKey(apiKey: String) {
+        val encryptedKey = if (apiKey.isNotBlank()) {
+            keystoreManager.encrypt(apiKey.trim())
+        } else {
+            ""
+        }
+        context.dataStore.edit { prefs ->
+            if (encryptedKey.isNotEmpty()) {
+                prefs[KEY_AI_GEMINI_API_KEY] = encryptedKey
+            } else {
+                prefs.remove(KEY_AI_GEMINI_API_KEY)
+            }
+        }
+    }
+
+    suspend fun clearAiGeminiApiKey() {
+        context.dataStore.edit { prefs ->
+            prefs.remove(KEY_AI_GEMINI_API_KEY)
         }
     }
 }

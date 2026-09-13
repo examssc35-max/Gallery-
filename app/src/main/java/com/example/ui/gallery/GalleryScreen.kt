@@ -124,6 +124,7 @@ fun GalleryScreen(
     onNavigateToStorage: () -> Unit,
     onNavigateToTrash: () -> Unit,
     onNavigateToCloudStorageUsage: () -> Unit = {},
+    onNavigateToAiAssistant: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -350,6 +351,17 @@ fun GalleryScreen(
                     actions = {
                         if (!isSearchActive) {
                             IconButton(
+                                onClick = onNavigateToAiAssistant,
+                                modifier = Modifier.testTag("ai_assistant_top_button")
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.AutoAwesome,
+                                    contentDescription = "AI Assistant",
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                            }
+
+                            IconButton(
                                 onClick = { isSearchActive = true },
                                 modifier = Modifier.testTag("search_button")
                             ) {
@@ -435,6 +447,14 @@ fun GalleryScreen(
                                     expanded = showOverflowMenu,
                                     onDismissRequest = { showOverflowMenu = false }
                                 ) {
+                                    DropdownMenuItem(
+                                        leadingIcon = { Icon(Icons.Default.AutoAwesome, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
+                                        text = { Text("AI Assistant") },
+                                        onClick = {
+                                            showOverflowMenu = false
+                                            onNavigateToAiAssistant()
+                                        }
+                                    )
                                     DropdownMenuItem(
                                         leadingIcon = { Icon(Icons.Default.Sync, contentDescription = null) },
                                         text = { Text("Automatic Backup") },

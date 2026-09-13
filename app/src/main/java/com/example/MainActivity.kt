@@ -73,6 +73,22 @@ class MainActivity : ComponentActivity() {
         val getStorageUsageUseCase = GetStorageUsageUseCase(r2Repository)
         val storageUsageViewModel = StorageUsageViewModel(getStorageUsageUseCase, r2Repository)
 
+        val galleryAssistantTools = com.example.ai.tools.GalleryAssistantToolsImpl(
+            mediaRepository = mediaRepository,
+            backupRepository = backupRepository,
+            r2Repository = r2Repository,
+            preferencesManager = preferencesManager,
+            context = applicationContext
+        )
+        val aiAgentOrchestrator = com.example.ai.orchestrator.AiAgentOrchestrator(
+            tools = galleryAssistantTools,
+            preferencesManager = preferencesManager
+        )
+        val aiAssistantViewModel = com.example.ui.ai.AiAssistantViewModel(
+            orchestrator = aiAgentOrchestrator,
+            preferencesManager = preferencesManager
+        )
+
         setContent {
             val themeMode by preferencesManager.themeModeFlow.collectAsState(initial = AppThemeMode.SYSTEM)
             val isDarkTheme = when (themeMode) {
@@ -109,7 +125,8 @@ class MainActivity : ComponentActivity() {
                                 onNavigateToDuplicates = { navController.navigate(NavRoute.Duplicates.route) },
                                 onNavigateToStorage = { navController.navigate(NavRoute.Storage.route) },
                                 onNavigateToTrash = { navController.navigate(NavRoute.Trash.route) },
-                                onNavigateToCloudStorageUsage = { navController.navigate(NavRoute.CloudStorageUsage.route) }
+                                onNavigateToCloudStorageUsage = { navController.navigate(NavRoute.CloudStorageUsage.route) },
+                                onNavigateToAiAssistant = { navController.navigate(NavRoute.AiAssistant.route) }
                             )
                         }
 
@@ -194,6 +211,34 @@ class MainActivity : ComponentActivity() {
                             TrashScreen(
                                 mediaRepository = mediaRepository,
                                 onBack = { navController.popBackStack() }
+                            )
+                        }
+
+                        composable(NavRoute.AiAssistant.route) {
+                            com.example.ui.ai.AiAssistantScreen(
+                                viewModel = aiAssistantViewModel,
+                                onNavigateBack = { navController.popBackStack() },
+                                onNavigateToMediaViewer = { index ->
+                                    activeViewerIndex = index
+                                    navController.navigate(NavRoute.MediaViewer.createRoute(index))
+                                },
+                                onNavigateToRoute = { route ->
+                                    when (route) {
+                                        "gallery" -> navController.navigate(NavRoute.Gallery.route)
+                                        "backup" -> navController.navigate(NavRoute.Backup.route)
+                                        "cloud" -> navController.navigate(NavRoute.Cloud.route)
+                                        "settings" -> navController.navigate(NavRoute.Settings.route)
+                                        "duplicates" -> navController.navigate(NavRoute.Duplicates.route)
+                                        "storage" -> navController.navigate(NavRoute.Storage.route)
+                                        "cloud_storage_usage" -> navController.navigate(NavRoute.CloudStorageUsage.route)
+                                        "trash" -> navController.navigate(NavRoute.Trash.route)
+                                        else -> {
+                                            try {
+                                                navController.navigate(route)
+                                            } catch (_: Exception) {}
+                                        }
+                                    }
+                                }
                             )
                         }
                     }
