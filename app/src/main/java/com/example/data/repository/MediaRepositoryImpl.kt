@@ -36,6 +36,10 @@ class MediaRepositoryImpl(
         }
     }
 
+    override fun observeMediaChanges(): Flow<Unit> {
+        return mediaStoreDataSource.observeMediaStore()
+    }
+
     override suspend fun getAlbums(mediaItems: List<MediaItem>): List<Album> {
         return mediaStoreDataSource.getAlbums(mediaItems)
     }

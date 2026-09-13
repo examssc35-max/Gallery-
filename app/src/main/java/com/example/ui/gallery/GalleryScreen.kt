@@ -2,8 +2,10 @@ package com.example.ui.gallery
 
 import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -30,8 +32,10 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.itemsIndexed
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Close
@@ -73,7 +77,9 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -89,6 +95,10 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.example.data.local.DeletionResult
 import com.example.data.local.SortOrder
 import com.example.domain.model.MediaItem
@@ -119,6 +129,7 @@ fun GalleryScreen(
     val snackbarHostState = remember { SnackbarHostState() }
 
     val uiState by viewModel.uiState.collectAsState()
+    val cloudTabUiState by cloudTabViewModel.uiState.collectAsState()
     val gridColumns by viewModel.gridColumns.collectAsState()
     val sortOrder by viewModel.sortOrder.collectAsState()
 
@@ -128,14 +139,76 @@ fun GalleryScreen(
     var showColumnsMenu by remember { mutableStateOf(false) }
     var showDeleteConfirmDialog by remember { mutableStateOf(false) }
 
-    // Check media permission
-    val requiredPermissions = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-        arrayOf(Manifest.permission.READ_MEDIA_IMAGES, Manifest.permission.READ_MEDIA_VIDEO)
-    } else {
-        arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE)
+    // Intercept back navigation hierarchical logic
+    val isAtRoot = !isSearchActive &&
+        !uiState.isSelectionMode &&
+        !(uiState.selectedTab == GalleryTab.ALBUMS && uiState.activeAlbumName != null) &&
+        !(uiState.selectedTab == GalleryTab.CLOUD && (cloudTabUiState.isSelectionMode || cloudTabUiState.currentPrefix.isNotEmpty())) &&
+        uiState.selectedTab == GalleryTab.ALL
+
+    BackHandler(enabled = !isAtRoot) {
+        when {
+            isSearchActive -> {
+                isSearchActive = false
+                viewModel.setSearchQuery("")
+            }
+            uiState.isSelectionMode -> {
+                viewModel.clearSelection()
+            }
+            uiState.selectedTab == GalleryTab.ALBUMS && uiState.activeAlbumName != null -> {
+                viewModel.clearActiveAlbum()
+            }
+            uiState.selectedTab == GalleryTab.CLOUD -> {
+                when {
+                    cloudTabUiState.isSelectionMode -> cloudTabViewModel.clearSelection()
+                    cloudTabUiState.currentPrefix.isNotEmpty() -> cloudTabViewModel.navigateUp()
+                    else -> viewModel.selectTab(GalleryTab.ALL)
+                }
+            }
+            uiState.selectedTab != GalleryTab.ALL -> {
+                viewModel.selectTab(GalleryTab.ALL)
+            }
+        }
     }
 
-    var hasPermission by remember { mutableStateOf(false) }
+    // Check media permission across Android versions (including Android 14+)
+    fun checkHasPermission(): Boolean {
+        return when {
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE -> {
+                ContextCompat.checkSelfPermission(context, Manifest.permission.READ_MEDIA_IMAGES) == PackageManager.PERMISSION_GRANTED ||
+                ContextCompat.checkSelfPermission(context, Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED) == PackageManager.PERMISSION_GRANTED
+            }
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU -> {
+                ContextCompat.checkSelfPermission(context, Manifest.permission.READ_MEDIA_IMAGES) == PackageManager.PERMISSION_GRANTED
+            }
+            else -> {
+                ContextCompat.checkSelfPermission(context, Manifest.permission.READ_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED
+            }
+        }
+    }
+
+    var hasPermission by remember { mutableStateOf(checkHasPermission()) }
+
+    val requiredPermissions = remember {
+        when {
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE -> {
+                arrayOf(
+                    Manifest.permission.READ_MEDIA_IMAGES,
+                    Manifest.permission.READ_MEDIA_VIDEO,
+                    Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED
+                )
+            }
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU -> {
+                arrayOf(
+                    Manifest.permission.READ_MEDIA_IMAGES,
+                    Manifest.permission.READ_MEDIA_VIDEO
+                )
+            }
+            else -> {
+                arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE)
+            }
+        }
+    }
 
     val permissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestMultiplePermissions()
@@ -149,6 +222,24 @@ fun GalleryScreen(
 
     LaunchedEffect(Unit) {
         permissionLauncher.launch(requiredPermissions)
+    }
+
+    // Refresh media automatically when returning to the app
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                val currentPerm = checkHasPermission()
+                hasPermission = currentPerm
+                if (currentPerm) {
+                    viewModel.refreshMedia(silent = true)
+                }
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
     }
 
     // Android 11+ MediaStore Delete IntentSender launcher
@@ -467,73 +558,102 @@ fun GalleryScreen(
                     }
                 }
 
-                // Tab Content
-                when {
-                    uiState.selectedTab == GalleryTab.CLOUD -> {
-                        CloudTabScreen(
-                            viewModel = cloudTabViewModel,
-                            r2Repository = r2Repository,
-                            onOpenViewer = onOpenViewer,
-                            onConnectR2 = onNavigateToSettings,
-                            modifier = Modifier.fillMaxSize()
-                        )
-                    }
-                    uiState.selectedTab == GalleryTab.ALBUMS && uiState.activeAlbumName == null -> {
-                        AlbumsScreen(
-                            albums = uiState.albums,
-                            onAlbumClick = { albumName -> viewModel.selectAlbum(albumName) }
-                        )
-                    }
-                    else -> {
-                        // Photos / Videos Grid
-                        if (uiState.isLoading && uiState.mediaItems.isEmpty()) {
-                            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                CircularProgressIndicator()
-                            }
-                        } else if (filteredItems.isEmpty()) {
-                            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                    Icon(
-                                        imageVector = Icons.Default.PhotoLibrary,
-                                        contentDescription = null,
-                                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                                        modifier = Modifier.size(64.dp)
-                                    )
-                                    Spacer(modifier = Modifier.height(12.dp))
-                                    Text(
-                                        text = if (uiState.searchQuery.isNotEmpty())
-                                            "No items match '${uiState.searchQuery}'"
-                                        else
-                                            "No media items in this section",
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-                            }
+                val isRefreshing = if (uiState.selectedTab == GalleryTab.CLOUD) {
+                    cloudTabUiState.isRefreshing
+                } else {
+                    uiState.isRefreshing
+                }
+
+                // Pull to Refresh container for tab content
+                PullToRefreshBox(
+                    isRefreshing = isRefreshing,
+                    onRefresh = {
+                        if (uiState.selectedTab == GalleryTab.CLOUD) {
+                            cloudTabViewModel.refresh()
                         } else {
-                            LazyVerticalGrid(
-                                columns = GridCells.Fixed(gridColumns),
-                                contentPadding = PaddingValues(2.dp),
-                                horizontalArrangement = Arrangement.spacedBy(2.dp),
-                                verticalArrangement = Arrangement.spacedBy(2.dp),
+                            viewModel.refreshMedia(silent = false)
+                        }
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
+                ) {
+                    // Tab Content
+                    when {
+                        uiState.selectedTab == GalleryTab.CLOUD -> {
+                            CloudTabScreen(
+                                viewModel = cloudTabViewModel,
+                                r2Repository = r2Repository,
+                                onOpenViewer = onOpenViewer,
+                                onConnectR2 = onNavigateToSettings,
                                 modifier = Modifier.fillMaxSize()
-                            ) {
-                                itemsIndexed(filteredItems, key = { _, item -> item.id }) { index, item ->
-                                    MediaGridItem(
-                                        item = item,
-                                        isSelected = item.id in uiState.selectedIds,
-                                        isSelectionMode = uiState.isSelectionMode,
-                                        isBackedUp = item.id in uiState.backedUpIds,
-                                        onClick = {
-                                            if (uiState.isSelectionMode) {
+                            )
+                        }
+                        uiState.selectedTab == GalleryTab.ALBUMS && uiState.activeAlbumName == null -> {
+                            AlbumsScreen(
+                                albums = uiState.albums,
+                                onAlbumClick = { albumName -> viewModel.selectAlbum(albumName) }
+                            )
+                        }
+                        else -> {
+                            // Photos / Videos Grid
+                            if (uiState.isLoading && uiState.mediaItems.isEmpty()) {
+                                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                    CircularProgressIndicator()
+                                }
+                            } else if (filteredItems.isEmpty()) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .verticalScroll(rememberScrollState()),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Column(
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                        modifier = Modifier.padding(32.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.PhotoLibrary,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                                            modifier = Modifier.size(64.dp)
+                                        )
+                                        Spacer(modifier = Modifier.height(12.dp))
+                                        Text(
+                                            text = if (uiState.searchQuery.isNotEmpty())
+                                                "No items match '${uiState.searchQuery}'"
+                                            else
+                                                "No media items in this section",
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+                            } else {
+                                LazyVerticalGrid(
+                                    columns = GridCells.Fixed(gridColumns),
+                                    contentPadding = PaddingValues(2.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(2.dp),
+                                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                                    modifier = Modifier.fillMaxSize()
+                                ) {
+                                    itemsIndexed(filteredItems, key = { _, item -> item.id }) { index, item ->
+                                        MediaGridItem(
+                                            item = item,
+                                            isSelected = item.id in uiState.selectedIds,
+                                            isSelectionMode = uiState.isSelectionMode,
+                                            isBackedUp = item.id in uiState.backedUpIds,
+                                            onClick = {
+                                                if (uiState.isSelectionMode) {
+                                                    viewModel.toggleSelection(item.id)
+                                                } else {
+                                                    onOpenViewer(index, filteredItems)
+                                                }
+                                            },
+                                            onLongClick = {
                                                 viewModel.toggleSelection(item.id)
-                                            } else {
-                                                onOpenViewer(index, filteredItems)
                                             }
-                                        },
-                                        onLongClick = {
-                                            viewModel.toggleSelection(item.id)
-                                        }
-                                    )
+                                        )
+                                    }
                                 }
                             }
                         }

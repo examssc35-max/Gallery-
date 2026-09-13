@@ -1,5 +1,6 @@
 package com.example.ui.storage
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -18,6 +19,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Movie
@@ -25,10 +27,14 @@ import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -47,12 +53,16 @@ import com.example.domain.repository.MediaRepository
 import com.example.domain.repository.R2Repository
 import java.util.Locale
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun StorageAnalyzerScreen(
     mediaRepository: MediaRepository,
     r2Repository: R2Repository,
+    onBack: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
+    BackHandler { onBack() }
+
     var isLoading by remember { mutableStateOf(true) }
     var stats by remember { mutableStateOf(StorageStats()) }
 
@@ -65,18 +75,42 @@ fun StorageAnalyzerScreen(
         isLoading = false
     }
 
-    if (isLoading) {
-        Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            CircularProgressIndicator()
-        }
-        return
-    }
-
-    LazyColumn(
-        contentPadding = PaddingValues(16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Storage Analyzer", fontWeight = FontWeight.Bold) },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "Back"
+                        )
+                    }
+                }
+            )
+        },
         modifier = modifier.fillMaxSize()
-    ) {
+    ) { innerPadding ->
+        if (isLoading) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(innerPadding),
+                contentAlignment = Alignment.Center
+            ) {
+                CircularProgressIndicator()
+            }
+        } else {
+            LazyColumn(
+                contentPadding = PaddingValues(
+                    start = 16.dp,
+                    top = innerPadding.calculateTopPadding() + 8.dp,
+                    end = 16.dp,
+                    bottom = innerPadding.calculateBottomPadding() + 16.dp
+                ),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+                modifier = Modifier.fillMaxSize()
+            ) {
         // Hero Card
         item {
             Card(
@@ -185,6 +219,8 @@ fun StorageAnalyzerScreen(
                 icon = Icons.Default.Cloud,
                 accentColor = Color(0xFF4CAF50)
             )
+        }
+    }
         }
     }
 }

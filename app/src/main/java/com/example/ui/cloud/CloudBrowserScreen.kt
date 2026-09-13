@@ -1,5 +1,6 @@
 package com.example.ui.cloud
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -69,12 +70,21 @@ import java.util.Locale
 fun CloudBrowserScreen(
     viewModel: CloudBrowserViewModel,
     onNavigateToSettings: () -> Unit,
+    onBack: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
+
+    BackHandler {
+        if (uiState.currentPrefix.isNotEmpty()) {
+            viewModel.navigateUp()
+        } else {
+            onBack()
+        }
+    }
 
     var itemToDelete by remember { mutableStateOf<R2Item?>(null) }
     var itemDetails by remember { mutableStateOf<R2Item?>(null) }
@@ -89,11 +99,26 @@ fun CloudBrowserScreen(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 10.dp),
+                        .padding(horizontal = 8.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
+                        IconButton(
+                            onClick = {
+                                if (uiState.currentPrefix.isNotEmpty()) {
+                                    viewModel.navigateUp()
+                                } else {
+                                    onBack()
+                                }
+                            }
+                        ) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                contentDescription = if (uiState.currentPrefix.isNotEmpty()) "Up folder" else "Back"
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(4.dp))
                         Icon(
                             imageVector = if (uiState.isConnected) Icons.Default.Cloud else Icons.Default.CloudOff,
                             contentDescription = null,
@@ -118,14 +143,6 @@ fun CloudBrowserScreen(
                     }
 
                     Row {
-                        if (uiState.currentPrefix.isNotEmpty()) {
-                            IconButton(onClick = { viewModel.navigateUp() }) {
-                                Icon(
-                                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                                    contentDescription = "Up folder"
-                                )
-                            }
-                        }
                         IconButton(onClick = { viewModel.loadObjects(uiState.currentPrefix) }) {
                             Icon(
                                 imageVector = Icons.Default.Refresh,

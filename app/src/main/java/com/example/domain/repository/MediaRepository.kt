@@ -11,6 +11,7 @@ import kotlinx.coroutines.flow.Flow
 
 interface MediaRepository {
     suspend fun loadMediaItems(): List<MediaItem>
+    fun observeMediaChanges(): Flow<Unit>
     suspend fun getAlbums(mediaItems: List<MediaItem>): List<Album>
     fun getFavoriteIdsFlow(): Flow<List<Long>>
     suspend fun toggleFavorite(mediaId: Long)

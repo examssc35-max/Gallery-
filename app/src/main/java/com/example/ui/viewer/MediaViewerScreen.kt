@@ -5,6 +5,7 @@ import android.content.Intent
 import android.media.MediaScannerConnection
 import android.net.Uri
 import android.os.Environment
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -57,6 +58,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -117,6 +119,8 @@ fun MediaViewerScreen(
 
     var controlsVisible by remember { mutableStateOf(true) }
     var isPlayingVideo by remember { mutableStateOf(false) }
+    var isCurrentItemZoomed by remember { mutableStateOf(false) }
+    var resetZoomTrigger by remember { mutableIntStateOf(0) }
     var isFavorite by remember(currentItem.id) { mutableStateOf(currentItem.isFavorite) }
     var showDeleteConfirmDialog by remember { mutableStateOf(false) }
     var showDetailsDialog by remember { mutableStateOf(false) }
@@ -126,6 +130,15 @@ fun MediaViewerScreen(
     var uploadStatusText by remember { mutableStateOf<String?>(null) }
     var isAlreadyBackedUp by remember(currentItem.id) { mutableStateOf(false) }
 
+    // Intercept back navigation: video playback -> reset zoom -> return to gallery
+    BackHandler {
+        when {
+            isPlayingVideo -> isPlayingVideo = false
+            isCurrentItemZoomed -> resetZoomTrigger++
+            else -> onBack()
+        }
+    }
+
     // Check backup status for current item
     LaunchedEffect(currentItem.id) {
         if (!currentItem.isCloud) {
@@ -134,6 +147,7 @@ fun MediaViewerScreen(
         isFavorite = mediaRepository.isFavorite(currentItem.id)
         isPlayingVideo = false
         isDownloaded = false
+        isCurrentItemZoomed = false
     }
 
     // Android MediaStore system delete contract
@@ -208,6 +222,12 @@ fun MediaViewerScreen(
                     uriString = item.uriString,
                     contentDescription = item.name,
                     isCurrentPage = isCurrentPage,
+                    resetZoomTrigger = if (isCurrentPage) resetZoomTrigger else 0,
+                    onZoomChanged = { zoomed ->
+                        if (isCurrentPage) {
+                            isCurrentItemZoomed = zoomed
+                        }
+                    },
                     onTap = { controlsVisible = !controlsVisible }
                 )
             }
@@ -238,7 +258,13 @@ fun MediaViewerScreen(
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         IconButton(
-                            onClick = onBack,
+                            onClick = {
+                                when {
+                                    isPlayingVideo -> isPlayingVideo = false
+                                    isCurrentItemZoomed -> resetZoomTrigger++
+                                    else -> onBack()
+                                }
+                            },
                             modifier = Modifier.testTag("viewer_back_button")
                         ) {
                             Icon(

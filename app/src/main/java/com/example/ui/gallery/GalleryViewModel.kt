@@ -10,11 +10,13 @@ import com.example.domain.model.MediaItem
 import com.example.domain.repository.BackupRepository
 import com.example.domain.repository.MediaRepository
 import com.example.domain.repository.UploadResult
+import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -29,6 +31,7 @@ enum class GalleryTab {
 
 data class GalleryUiState(
     val isLoading: Boolean = true,
+    val isRefreshing: Boolean = false,
     val mediaItems: List<MediaItem> = emptyList(),
     val albums: List<Album> = emptyList(),
     val selectedTab: GalleryTab = GalleryTab.ALL,
@@ -61,6 +64,18 @@ class GalleryViewModel(
     init {
         loadMedia()
         observeBackupRecords()
+        observeMediaStoreChanges()
+    }
+
+    @OptIn(FlowPreview::class)
+    private fun observeMediaStoreChanges() {
+        viewModelScope.launch {
+            mediaRepository.observeMediaChanges()
+                .debounce(400L)
+                .collect {
+                    refreshMedia(silent = true)
+                }
+        }
     }
 
     private fun observeBackupRecords() {
@@ -77,19 +92,47 @@ class GalleryViewModel(
 
     fun loadMedia() {
         viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(isLoading = true)
+            if (_uiState.value.mediaItems.isEmpty()) {
+                _uiState.value = _uiState.value.copy(isLoading = true)
+            }
             try {
                 val items = mediaRepository.loadMediaItems()
                 val albums = mediaRepository.getAlbums(items)
                 _uiState.value = _uiState.value.copy(
                     isLoading = false,
+                    isRefreshing = false,
                     mediaItems = items,
                     albums = albums
                 )
             } catch (e: Exception) {
                 _uiState.value = _uiState.value.copy(
                     isLoading = false,
+                    isRefreshing = false,
                     infoMessage = "Failed to load media: ${e.message}"
+                )
+            }
+        }
+    }
+
+    fun refreshMedia(silent: Boolean = false) {
+        viewModelScope.launch {
+            if (!silent) {
+                _uiState.value = _uiState.value.copy(isRefreshing = true)
+            }
+            try {
+                val items = mediaRepository.loadMediaItems()
+                val albums = mediaRepository.getAlbums(items)
+                _uiState.value = _uiState.value.copy(
+                    isRefreshing = false,
+                    isLoading = false,
+                    mediaItems = items,
+                    albums = albums
+                )
+            } catch (e: Exception) {
+                _uiState.value = _uiState.value.copy(
+                    isRefreshing = false,
+                    isLoading = false,
+                    infoMessage = "Failed to refresh media: ${e.message}"
                 )
             }
         }
@@ -102,9 +145,15 @@ class GalleryViewModel(
         )
     }
 
-    fun selectAlbum(albumName: String) {
+    fun selectAlbum(albumName: String?) {
         _uiState.value = _uiState.value.copy(
             activeAlbumName = albumName
+        )
+    }
+
+    fun clearActiveAlbum() {
+        _uiState.value = _uiState.value.copy(
+            activeAlbumName = null
         )
     }
 

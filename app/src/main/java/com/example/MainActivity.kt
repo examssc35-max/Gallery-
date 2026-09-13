@@ -133,37 +133,47 @@ class MainActivity : ComponentActivity() {
                         composable(NavRoute.Backup.route) {
                             BackupScreen(
                                 viewModel = backupViewModel,
-                                onNavigateToSettings = { navController.navigate(NavRoute.Settings.route) }
+                                onNavigateToSettings = { navController.navigate(NavRoute.Settings.route) },
+                                onBack = { navController.popBackStack() }
                             )
                         }
 
                         composable(NavRoute.Cloud.route) {
                             CloudBrowserScreen(
                                 viewModel = cloudViewModel,
-                                onNavigateToSettings = { navController.navigate(NavRoute.Settings.route) }
+                                onNavigateToSettings = { navController.navigate(NavRoute.Settings.route) },
+                                onBack = { navController.popBackStack() }
                             )
                         }
 
                         composable(NavRoute.Settings.route) {
                             SettingsScreen(
                                 r2Repository = r2Repository,
-                                preferencesManager = preferencesManager
+                                preferencesManager = preferencesManager,
+                                onBack = { navController.popBackStack() }
                             )
                         }
 
                         composable(NavRoute.Duplicates.route) {
-                            DuplicateFinderScreen(mediaRepository = mediaRepository)
+                            DuplicateFinderScreen(
+                                mediaRepository = mediaRepository,
+                                onBack = { navController.popBackStack() }
+                            )
                         }
 
                         composable(NavRoute.Storage.route) {
                             StorageAnalyzerScreen(
                                 mediaRepository = mediaRepository,
-                                r2Repository = r2Repository
+                                r2Repository = r2Repository,
+                                onBack = { navController.popBackStack() }
                             )
                         }
 
                         composable(NavRoute.Trash.route) {
-                            TrashScreen(mediaRepository = mediaRepository)
+                            TrashScreen(
+                                mediaRepository = mediaRepository,
+                                onBack = { navController.popBackStack() }
+                            )
                         }
                     }
                 }

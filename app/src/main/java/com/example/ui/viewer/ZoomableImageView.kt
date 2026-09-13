@@ -32,16 +32,25 @@ fun ZoomableImageView(
     contentDescription: String?,
     modifier: Modifier = Modifier,
     isCurrentPage: Boolean = true,
+    resetZoomTrigger: Int = 0,
+    onZoomChanged: ((Boolean) -> Unit)? = null,
     onTap: () -> Unit = {}
 ) {
     var scale by remember { mutableFloatStateOf(1f) }
     var offset by remember { mutableStateOf(Offset.Zero) }
 
-    // Reset zoom and pan when swiped away to another page
-    LaunchedEffect(isCurrentPage) {
-        if (!isCurrentPage) {
-            scale = 1f
-            offset = Offset.Zero
+    // Reset zoom and pan when swiped away to another page or when reset is triggered
+    LaunchedEffect(isCurrentPage, resetZoomTrigger) {
+        scale = 1f
+        offset = Offset.Zero
+        if (isCurrentPage) {
+            onZoomChanged?.invoke(false)
+        }
+    }
+
+    LaunchedEffect(scale, isCurrentPage) {
+        if (isCurrentPage) {
+            onZoomChanged?.invoke(scale > 1.05f)
         }
     }
 

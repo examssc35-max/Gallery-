@@ -101,6 +101,13 @@ fun VideoPlayerView(
     var isSeeking by remember { mutableStateOf(false) }
     var seekProgress by remember { mutableFloatStateOf(0f) }
 
+    androidx.activity.compose.BackHandler {
+        if (isLandscape) {
+            activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+        }
+        onBack()
+    }
+
     // Listen to ExoPlayer playback events
     DisposableEffect(exoPlayer) {
         val listener = object : Player.Listener {
