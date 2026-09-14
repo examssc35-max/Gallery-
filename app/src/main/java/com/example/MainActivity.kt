@@ -104,6 +104,7 @@ class MainActivity : ComponentActivity() {
                     // Shared state for media viewer list
                     var activeViewerList by remember { mutableStateOf<List<MediaItem>>(emptyList()) }
                     var activeViewerIndex by remember { mutableIntStateOf(0) }
+                    var activeViewerAutoPlayVideo by remember { mutableStateOf(false) }
 
                     NavHost(
                         navController = navController,
@@ -117,6 +118,7 @@ class MainActivity : ComponentActivity() {
                                 onOpenViewer = { index, items ->
                                     activeViewerList = items
                                     activeViewerIndex = index
+                                    activeViewerAutoPlayVideo = false
                                     navController.navigate(NavRoute.MediaViewer.createRoute(index))
                                 },
                                 onNavigateToBackup = { navController.navigate(NavRoute.Backup.route) },
@@ -138,6 +140,7 @@ class MainActivity : ComponentActivity() {
                             MediaViewerScreen(
                                 mediaList = activeViewerList,
                                 initialIndex = indexArg,
+                                initialPlayVideo = activeViewerAutoPlayVideo,
                                 mediaRepository = mediaRepository,
                                 backupRepository = backupRepository,
                                 r2Repository = r2Repository,
@@ -218,9 +221,11 @@ class MainActivity : ComponentActivity() {
                             com.example.ui.ai.AiAssistantScreen(
                                 viewModel = aiAssistantViewModel,
                                 onNavigateBack = { navController.popBackStack() },
-                                onNavigateToMediaViewer = { index ->
-                                    activeViewerIndex = index
-                                    navController.navigate(NavRoute.MediaViewer.createRoute(index))
+                                onOpenViewer = { initialIndex, items, autoPlayVideo ->
+                                    activeViewerList = items
+                                    activeViewerIndex = initialIndex
+                                    activeViewerAutoPlayVideo = autoPlayVideo
+                                    navController.navigate(NavRoute.MediaViewer.createRoute(initialIndex))
                                 },
                                 onNavigateToRoute = { route ->
                                     when (route) {

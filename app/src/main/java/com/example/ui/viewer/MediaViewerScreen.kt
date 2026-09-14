@@ -46,6 +46,7 @@ import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.PlayCircleFilled
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -88,6 +89,7 @@ import java.util.Locale
 fun MediaViewerScreen(
     mediaList: List<MediaItem>,
     initialIndex: Int,
+    initialPlayVideo: Boolean = false,
     mediaRepository: MediaRepository,
     backupRepository: BackupRepository,
     r2Repository: R2Repository? = null,
@@ -97,10 +99,40 @@ fun MediaViewerScreen(
 ) {
     if (mediaList.isEmpty()) {
         Box(
-            modifier = modifier.fillMaxSize().background(Color.Black),
+            modifier = modifier
+                .fillMaxSize()
+                .background(Color.Black),
             contentAlignment = Alignment.Center
         ) {
-            Text("No media items to display", color = Color.White)
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center,
+                modifier = Modifier.padding(24.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Info,
+                    contentDescription = null,
+                    tint = Color.White.copy(alpha = 0.7f),
+                    modifier = Modifier.size(48.dp)
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+                Text(
+                    text = "No media items to display",
+                    color = Color.White,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = "The requested media is no longer available or could not be loaded.",
+                    color = Color.White.copy(alpha = 0.7f),
+                    style = MaterialTheme.typography.bodyMedium
+                )
+                Spacer(modifier = Modifier.height(20.dp))
+                Button(onClick = onBack) {
+                    Text("Return")
+                }
+            }
         }
         return
     }
@@ -118,7 +150,7 @@ fun MediaViewerScreen(
     val currentItem = mediaList.getOrNull(pagerState.currentPage) ?: mediaList[0]
 
     var controlsVisible by remember { mutableStateOf(true) }
-    var isPlayingVideo by remember { mutableStateOf(false) }
+    var isPlayingVideo by remember { mutableStateOf(initialPlayVideo && (mediaList.getOrNull(safeInitialIndex)?.isVideo == true)) }
     var isCurrentItemZoomed by remember { mutableStateOf(false) }
     var resetZoomTrigger by remember { mutableIntStateOf(0) }
     var isFavorite by remember(currentItem.id) { mutableStateOf(currentItem.isFavorite) }

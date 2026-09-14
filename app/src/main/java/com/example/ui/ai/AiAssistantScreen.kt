@@ -1,5 +1,11 @@
 package com.example.ui.ai
 
+import android.Manifest
+import android.content.Context
+import android.content.pm.PackageManager
+import android.net.Uri
+import android.os.Build
+import android.provider.MediaStore
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -43,6 +49,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
@@ -53,28 +61,37 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import com.example.ai.model.AiMessage
 import com.example.ai.model.AiProviderType
 import com.example.ai.model.MessageSender
 import com.example.domain.model.MediaItem
+import kotlinx.coroutines.launch
+import java.io.File
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun AiAssistantScreen(
     viewModel: AiAssistantViewModel,
     onNavigateBack: () -> Unit,
-    onNavigateToMediaViewer: (Int) -> Unit = {},
+    onOpenViewer: (initialIndex: Int, items: List<MediaItem>, autoPlayVideo: Boolean) -> Unit = { _, _, _ -> },
     onNavigateToRoute: (String) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val snackbarHostState = remember { SnackbarHostState() }
+
     val uiState by viewModel.uiState.collectAsState()
     val providerMode by viewModel.providerMode.collectAsState()
 
@@ -90,6 +107,7 @@ fun AiAssistantScreen(
 
     Scaffold(
         modifier = modifier.fillMaxSize(),
+        snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
         topBar = {
             TopAppBar(
                 title = {
@@ -191,9 +209,34 @@ fun AiAssistantScreen(
                 items(uiState.messages, key = { it.id }) { message ->
                     ChatMessageItem(
                         message = message,
-                        onMediaClick = { mediaItem ->
-                            // Open viewer with media item
-                            onNavigateToRoute("viewer/0")
+                        onMediaClick = { clickedIndex, resultItems ->
+                            val clickedItem = resultItems.getOrNull(clickedIndex)
+                            if (clickedItem == null) {
+                                scope.launch { snackbarHostState.showSnackbar("This file is no longer available.") }
+                                return@ChatMessageItem
+                            }
+
+                            // 1. Check permissions for local media
+                            if (!clickedItem.isCloud && !checkMediaPermission(context, clickedItem.isVideo)) {
+                                scope.launch { snackbarHostState.showSnackbar("Permission is required to access this media.") }
+                                return@ChatMessageItem
+                            }
+
+                            // 2. MediaStore reference validation
+                            if (!isMediaAvailable(context, clickedItem)) {
+                                scope.launch { snackbarHostState.showSnackbar("This file is no longer available.") }
+                                return@ChatMessageItem
+                            }
+
+                            // 3. Filter valid items for swipe support
+                            val validItems = resultItems.filter { isMediaAvailable(context, it) }
+                            if (validItems.isEmpty()) {
+                                scope.launch { snackbarHostState.showSnackbar("This file is no longer available.") }
+                                return@ChatMessageItem
+                            }
+
+                            val targetIndex = validItems.indexOfFirst { it.id == clickedItem.id }.coerceAtLeast(0)
+                            onOpenViewer(targetIndex, validItems, clickedItem.isVideo)
                         },
                         onNavigateToRoute = onNavigateToRoute,
                         onRunAction = { actionText ->
@@ -304,7 +347,7 @@ fun AiAssistantScreen(
 @Composable
 private fun ChatMessageItem(
     message: AiMessage,
-    onMediaClick: (MediaItem) -> Unit,
+    onMediaClick: (initialIndex: Int, items: List<MediaItem>) -> Unit,
     onNavigateToRoute: (String) -> Unit,
     onRunAction: (String) -> Unit
 ) {
@@ -390,5 +433,45 @@ private fun ChatMessageItem(
                 onRunAction = onRunAction
             )
         }
+    }
+}
+
+private fun checkMediaPermission(context: Context, isVideo: Boolean): Boolean {
+    return when {
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE -> {
+            val permission = if (isVideo) Manifest.permission.READ_MEDIA_VIDEO else Manifest.permission.READ_MEDIA_IMAGES
+            ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED ||
+            ContextCompat.checkSelfPermission(context, Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED) == PackageManager.PERMISSION_GRANTED
+        }
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU -> {
+            val permission = if (isVideo) Manifest.permission.READ_MEDIA_VIDEO else Manifest.permission.READ_MEDIA_IMAGES
+            ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED
+        }
+        else -> {
+            ContextCompat.checkSelfPermission(context, Manifest.permission.READ_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED
+        }
+    }
+}
+
+private fun isMediaAvailable(context: Context, item: MediaItem): Boolean {
+    if (item.isCloud) {
+        return item.uriString.isNotBlank() || item.cloudKey != null
+    }
+    return try {
+        if (item.uriString.startsWith("content://")) {
+            val uri = Uri.parse(item.uriString)
+            context.contentResolver.query(uri, arrayOf(MediaStore.MediaColumns._ID), null, null, null)?.use { cursor ->
+                cursor.moveToFirst()
+            } ?: false
+        } else if (item.uriString.startsWith("file://")) {
+            val path = Uri.parse(item.uriString).path ?: item.path
+            path.isNotEmpty() && File(path).exists()
+        } else if (item.path.isNotEmpty()) {
+            File(item.path).exists()
+        } else {
+            false
+        }
+    } catch (_: Exception) {
+        false
     }
 }

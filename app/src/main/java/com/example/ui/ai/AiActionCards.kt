@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -63,7 +64,7 @@ import java.util.Locale
 @Composable
 fun AiActionCard(
     actionResult: AiActionResult,
-    onMediaClick: (MediaItem) -> Unit = {},
+    onMediaClick: (initialIndex: Int, items: List<MediaItem>) -> Unit = { _, _ -> },
     onNavigateToRoute: (String) -> Unit = {},
     onRunAction: (String) -> Unit = {}
 ) {
@@ -116,7 +117,7 @@ fun AiActionCard(
 @Composable
 private fun MediaListCardContent(
     result: AiActionResult.MediaListResult,
-    onMediaClick: (MediaItem) -> Unit
+    onMediaClick: (initialIndex: Int, items: List<MediaItem>) -> Unit
 ) {
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -158,8 +159,8 @@ private fun MediaListCardContent(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             contentPadding = PaddingValues(vertical = 4.dp)
         ) {
-            items(result.items, key = { it.id }) { item ->
-                MediaThumbnailChip(item = item, onClick = { onMediaClick(item) })
+            itemsIndexed(result.items, key = { _, item -> item.id }) { index, item ->
+                MediaThumbnailChip(item = item, onClick = { onMediaClick(index, result.items) })
             }
         }
     }
