@@ -22,23 +22,18 @@ jobs:
 
       - name: Setup Android SDK (Manual)
         run: |
-          # Set ANDROID_HOME
           export ANDROID_HOME=$HOME/android-sdk
           mkdir -p $ANDROID_HOME
           
-          # Download command-line tools
           cd $ANDROID_HOME
           wget -q https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip
           unzip -q commandlinetools-linux-11076708_latest.zip
           
-          # Create proper directory structure
           mkdir -p $ANDROID_HOME/cmdline-tools/latest
           mv cmdline-tools/* $ANDROID_HOME/cmdline-tools/latest/ 2>/dev/null || true
           
-          # Accept licenses
           yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses >/dev/null 2>&1
           
-          # Install required packages
           $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager \
             "platform-tools" \
             "platforms;android-36" \
@@ -47,7 +42,6 @@ jobs:
             "build-tools;34.0.0" \
             --no_https >/dev/null 2>&1
           
-          # Set environment variables for next steps
           echo "ANDROID_HOME=$ANDROID_HOME" >> $GITHUB_ENV
           echo "$ANDROID_HOME/cmdline-tools/latest/bin" >> $GITHUB_PATH
 
@@ -58,12 +52,19 @@ jobs:
           fi
           chmod +x gradlew
 
-      - name: Build Debug APK
+      - name: Build Debug APK (Verbose)
         run: |
           ./gradlew assembleDebug \
             --no-daemon \
-            -q \
-            -Dorg.gradle.jvmargs="-Xmx4g -XX:+UseG1GC"
+            --stacktrace \
+            --info \
+            -Dorg.gradle.jvmargs="-Xmx4g -XX:+UseG1GC" 2>&1 | tee build.log
+
+      - name: Show Build Log
+        if: failure()
+        run: |
+          echo "=== BUILD ERROR LOG ==="
+          tail -100 build.log
 
       - name: Upload APK (Success)
         if: success()
@@ -71,14 +72,10 @@ jobs:
         with:
           name: debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
-          retention-days: 7
 
-      - name: Upload Build Logs (Failure)
-        if: failure()
+      - name: Upload Build Log
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: build-failure-logs
-          path: |
-            app/build/outputs/
-            build/
-          retention-days: 3
+          name: build-logs
+          path: build.log
