@@ -40,6 +40,13 @@ class MediaRepositoryImpl(
         return mediaStoreDataSource.observeMediaStore()
     }
 
+    override fun getMediaItemsFlow(): Flow<List<MediaItem>> = kotlinx.coroutines.flow.flow {
+        emit(loadMediaItems())
+        observeMediaChanges().collect {
+            emit(loadMediaItems())
+        }
+    }
+
     override suspend fun getAlbums(mediaItems: List<MediaItem>): List<Album> {
         return mediaStoreDataSource.getAlbums(mediaItems)
     }

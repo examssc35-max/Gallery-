@@ -77,4 +77,19 @@ interface GalleryAssistantTools {
     suspend fun explainUploadFailure(): ToolResult<AiActionResult.FailureDiagnosticResult>
 
     suspend fun findDuplicates(): ToolResult<AiActionResult.DuplicatesResult>
+
+    // Smart Collections Tools
+    suspend fun getSmartCollections(): ToolResult<List<com.example.domain.model.SmartCollection>>
+
+    suspend fun getCollectionItems(collectionId: String): ToolResult<List<MediaItem>>
+
+    suspend fun refreshSmartCollections(): ToolResult<String>
+
+    suspend fun analyzeUnprocessedMedia(): ToolResult<String>
+
+    suspend fun getAnalysisStatus(): ToolResult<com.example.domain.model.AnalysisStatus>
+
+    suspend fun clearClassificationData(): ToolResult<String>
+
+    suspend fun openSmartCollection(collectionId: String): ToolResult<Pair<com.example.domain.model.SmartCollection, List<MediaItem>>>
 }

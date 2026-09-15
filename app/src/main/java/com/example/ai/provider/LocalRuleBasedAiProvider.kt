@@ -32,6 +32,108 @@ class LocalRuleBasedAiProvider : AiProvider {
         }
 
         val query = lastUserMessage.lowercase(Locale.ROOT)
+        val words = query.split(Regex("[^a-zA-Z0-9]+")).filter { it.isNotBlank() }.toSet()
+        fun hasWord(vararg targets: String): Boolean = targets.any { it in words }
+
+        // 0. Smart Collections queries
+        if (query.contains("nature") || query.contains("outdoors") || query.contains("landscape") || query.contains("forest") || query.contains("flowers")) {
+            return AiResponse(
+                text = "Opening Nature & Outdoors Smart Collection...",
+                toolCall = ToolCallRequest("openSmartCollection", mapOf("collectionId" to "nature"))
+            )
+        }
+
+        if (query.contains("food") || query.contains("meal") || query.contains("dinner") || query.contains("cooking") || hasWord("drink", "drinks")) {
+            return AiResponse(
+                text = "Opening Food & Dining Smart Collection...",
+                toolCall = ToolCallRequest("openSmartCollection", mapOf("collectionId" to "food"))
+            )
+        }
+
+        if (query.contains("group photo") || query.contains("friends") || query.contains("people") || query.contains("selfie") || query.contains("family")) {
+            val collectionId = if (query.contains("group") || query.contains("friends")) "friends_groups" else if (query.contains("family")) "family_moments" else "people"
+            return AiResponse(
+                text = "Opening People Smart Collection...",
+                toolCall = ToolCallRequest("openSmartCollection", mapOf("collectionId" to collectionId))
+            )
+        }
+
+        if (hasWord("pet", "pets", "animal", "animals", "dog", "dogs", "cat", "cats", "puppy", "puppies", "kitten", "kittens")) {
+            return AiResponse(
+                text = "Opening Animals & Pets Smart Collection...",
+                toolCall = ToolCallRequest("openSmartCollection", mapOf("collectionId" to "animals_pets"))
+            )
+        }
+
+        if (query.contains("travel") || query.contains("vacation") || query.contains("trip") || query.contains("holiday")) {
+            return AiResponse(
+                text = "Opening Travel Smart Collection...",
+                toolCall = ToolCallRequest("openSmartCollection", mapOf("collectionId" to "travel"))
+            )
+        }
+
+        if (query.contains("document") || query.contains("receipt") || query.contains("paper") || query.contains("text photo")) {
+            return AiResponse(
+                text = "Opening Documents Smart Collection...",
+                toolCall = ToolCallRequest("openSmartCollection", mapOf("collectionId" to "documents"))
+            )
+        }
+
+        if (query.contains("sport") || query.contains("fitness") || query.contains("workout") || query.contains("running")) {
+            return AiResponse(
+                text = "Opening Sports Smart Collection...",
+                toolCall = ToolCallRequest("openSmartCollection", mapOf("collectionId" to "sports"))
+            )
+        }
+
+        if (query.contains("vehicle") || hasWord("car", "cars") || query.contains("automobile") || hasWord("bike", "bikes")) {
+            return AiResponse(
+                text = "Opening Vehicles Smart Collection...",
+                toolCall = ToolCallRequest("openSmartCollection", mapOf("collectionId" to "vehicles"))
+            )
+        }
+
+        if (query.contains("building") || query.contains("architecture") || query.contains("house")) {
+            return AiResponse(
+                text = "Opening Buildings & Architecture Smart Collection...",
+                toolCall = ToolCallRequest("openSmartCollection", mapOf("collectionId" to "buildings"))
+            )
+        }
+
+        if (query.contains("event") || query.contains("party") || query.contains("concert") || query.contains("celebration")) {
+            return AiResponse(
+                text = "Opening Events & Gatherings Smart Collection...",
+                toolCall = ToolCallRequest("openSmartCollection", mapOf("collectionId" to "events"))
+            )
+        }
+
+        if (query.contains("smart collection") || query.contains("smart collections") || query.contains("categories") || query.contains("collections")) {
+            return AiResponse(
+                text = "Loading your Smart Collections...",
+                toolCall = ToolCallRequest("getSmartCollections")
+            )
+        }
+
+        if (query.contains("analyze media") || query.contains("categorize photos") || query.contains("run smart collections") || query.contains("start analysis")) {
+            return AiResponse(
+                text = "Starting on-device analysis for Smart Collections...",
+                toolCall = ToolCallRequest("analyzeUnprocessedMedia")
+            )
+        }
+
+        if (query.contains("clear smart collections") || query.contains("clear classification")) {
+            return AiResponse(
+                text = "Clearing Smart Collections classification data...",
+                toolCall = ToolCallRequest("clearClassificationData")
+            )
+        }
+
+        if (query.contains("collection status") || query.contains("analysis status")) {
+            return AiResponse(
+                text = "Checking Smart Collections analysis progress...",
+                toolCall = ToolCallRequest("getAnalysisStatus")
+            )
+        }
 
         // 1. Check R2 Connection
         if (query.contains("test r2") || query.contains("check r2") || query.contains("check my r2") ||

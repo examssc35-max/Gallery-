@@ -251,6 +251,84 @@ class AiAgentOrchestrator(
                 }
             }
 
+            "openSmartCollection" -> {
+                val collectionId = toolCall.arguments["collectionId"] ?: "nature"
+                when (val res = tools.openSmartCollection(collectionId)) {
+                    is ToolResult.Success -> {
+                        val (collection, items) = res.data
+                        val msg = if (items.isNotEmpty()) {
+                            "Found ${items.size} item(s) in the ${collection.name} Smart Collection."
+                        } else {
+                            "No media items categorized under ${collection.name} yet. Tap 'Analyze Media' to categorize your photos."
+                        }
+                        Triple(
+                            msg,
+                            res.actionResult,
+                            listOf("Show Smart Collections", "Show food photos", "Show group photos", "Analyze media")
+                        )
+                    }
+                    is ToolResult.Error -> {
+                        Triple("Error opening collection: ${res.message}", null, listOf("Show Smart Collections", "Analyze media"))
+                    }
+                }
+            }
+
+            "getSmartCollections" -> {
+                when (val res = tools.getSmartCollections()) {
+                    is ToolResult.Success -> {
+                        val collections = res.data
+                        val nonEmpty = collections.count { it.itemCount > 0 }
+                        val msg = "Here are your Smart Collections ($nonEmpty with items):"
+                        Triple(
+                            msg,
+                            res.actionResult,
+                            listOf("Show nature photos", "Show food photos", "Show group photos", "Analyze media")
+                        )
+                    }
+                    is ToolResult.Error -> {
+                        Triple("Failed to load Smart Collections: ${res.message}", null, getDefaultSuggestedActions())
+                    }
+                }
+            }
+
+            "analyzeUnprocessedMedia" -> {
+                when (val res = tools.analyzeUnprocessedMedia()) {
+                    is ToolResult.Success -> {
+                        Triple(res.data, null, listOf("Show Smart Collections", "Collection status"))
+                    }
+                    is ToolResult.Error -> {
+                        Triple("Failed to start analysis: ${res.message}", null, listOf("Show Smart Collections"))
+                    }
+                }
+            }
+
+            "getAnalysisStatus" -> {
+                when (val res = tools.getAnalysisStatus()) {
+                    is ToolResult.Success -> {
+                        val status = res.data
+                        Triple(
+                            "Smart Collections Status: ${status.message} (${status.analyzedCount}/${status.totalMediaCount} analyzed).",
+                            res.actionResult,
+                            listOf("Show Smart Collections", "Analyze media")
+                        )
+                    }
+                    is ToolResult.Error -> {
+                        Triple("Failed to get status: ${res.message}", null, getDefaultSuggestedActions())
+                    }
+                }
+            }
+
+            "clearClassificationData" -> {
+                when (val res = tools.clearClassificationData()) {
+                    is ToolResult.Success -> {
+                        Triple(res.data, null, listOf("Analyze media", "Show Smart Collections"))
+                    }
+                    is ToolResult.Error -> {
+                        Triple("Error: ${res.message}", null, getDefaultSuggestedActions())
+                    }
+                }
+            }
+
             else -> {
                 Triple("Action completed.", null, getDefaultSuggestedActions())
             }
@@ -258,14 +336,14 @@ class AiAgentOrchestrator(
     }
 
     fun getDefaultSuggestedActions(): List<String> = listOf(
+        "Show Smart Collections",
+        "Show nature photos",
+        "Show food photos",
+        "Show group photos",
         "Find my videos",
         "Find my screenshots",
         "Back up my videos",
         "Show cloud storage usage",
-        "Find large files",
-        "Show cloud files",
-        "Find duplicate files",
-        "Help with Cloudflare R2",
-        "Why did my upload fail?"
+        "Find large files"
     )
 }

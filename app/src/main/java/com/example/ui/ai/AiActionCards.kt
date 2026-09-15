@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -108,6 +109,15 @@ fun AiActionCard(
                 }
                 is AiActionResult.SimpleActionResult -> {
                     SimpleActionCardContent(actionResult, onNavigateToRoute)
+                }
+                is AiActionResult.SmartCollectionResult -> {
+                    SmartCollectionCardContent(actionResult, onMediaClick, onNavigateToRoute)
+                }
+                is AiActionResult.SmartCollectionsListResult -> {
+                    SmartCollectionsListCardContent(actionResult, onNavigateToRoute)
+                }
+                is AiActionResult.SmartAnalysisStatusResult -> {
+                    SmartAnalysisStatusCardContent(actionResult, onNavigateToRoute, onRunAction)
                 }
             }
         }
@@ -681,6 +691,181 @@ private fun SimpleActionCardContent(
             modifier = Modifier.fillMaxWidth()
         ) {
             Text("View Details")
+        }
+    }
+}
+
+@Composable
+private fun SmartCollectionCardContent(
+    result: AiActionResult.SmartCollectionResult,
+    onMediaClick: (initialIndex: Int, items: List<MediaItem>) -> Unit,
+    onNavigateToRoute: (String) -> Unit
+) {
+    val context = LocalContext.current
+    val collection = result.collection
+    val items = result.items
+
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Icon(
+            imageVector = Icons.Default.CheckCircle,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.size(20.dp)
+        )
+        Spacer(modifier = Modifier.width(8.dp))
+        Column {
+            Text(
+                text = collection.name,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold
+            )
+            Text(
+                text = "${items.size} item(s) categorized by on-device vision AI",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+
+    if (items.isNotEmpty()) {
+        Spacer(modifier = Modifier.height(10.dp))
+        LazyRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            contentPadding = PaddingValues(vertical = 4.dp)
+        ) {
+            itemsIndexed(items.take(15), key = { _, item -> item.id }) { index, item ->
+                Box(
+                    modifier = Modifier
+                        .size(80.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable { onMediaClick(index, items) }
+                ) {
+                    AsyncImage(
+                        model = ImageRequest.Builder(context)
+                            .data(item.uriString)
+                            .crossfade(true)
+                            .build(),
+                        contentDescription = item.name,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                    if (item.isVideo) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(Color.Black.copy(alpha = 0.25f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.PlayArrow,
+                                contentDescription = null,
+                                tint = Color.White,
+                                modifier = Modifier.size(24.dp)
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    Spacer(modifier = Modifier.height(10.dp))
+    OutlinedButton(
+        onClick = { onNavigateToRoute("smart_collection/${collection.id}") },
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Text("Open Full Collection (${items.size})")
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun SmartCollectionsListCardContent(
+    result: AiActionResult.SmartCollectionsListResult,
+    onNavigateToRoute: (String) -> Unit
+) {
+    Text(
+        text = "Smart Collections Overview",
+        style = MaterialTheme.typography.titleMedium,
+        fontWeight = FontWeight.Bold
+    )
+    Spacer(modifier = Modifier.height(8.dp))
+
+    val nonEmpty = result.collections.filter { it.itemCount > 0 }
+    if (nonEmpty.isNotEmpty()) {
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            nonEmpty.forEach { col ->
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f),
+                    modifier = Modifier.clickable { onNavigateToRoute("smart_collection/${col.id}") }
+                ) {
+                    Text(
+                        text = "${col.name}: ${col.itemCount}",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                    )
+                }
+            }
+        }
+    } else {
+        Text(
+            text = "No media categorized yet. Run analysis to populate your collections.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+
+    Spacer(modifier = Modifier.height(10.dp))
+    Button(
+        onClick = { onNavigateToRoute("smart_collections") },
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Text("View All Smart Collections")
+    }
+}
+
+@Composable
+private fun SmartAnalysisStatusCardContent(
+    result: AiActionResult.SmartAnalysisStatusResult,
+    onNavigateToRoute: (String) -> Unit,
+    onRunAction: (String) -> Unit
+) {
+    val status = result.status
+    Text(
+        text = "Vision AI Analysis Status",
+        style = MaterialTheme.typography.titleMedium,
+        fontWeight = FontWeight.Bold
+    )
+    Spacer(modifier = Modifier.height(6.dp))
+    Text(
+        text = status.message,
+        style = MaterialTheme.typography.bodyMedium
+    )
+
+    Spacer(modifier = Modifier.height(8.dp))
+    LinearProgressIndicator(
+        progress = { status.progress },
+        modifier = Modifier.fillMaxWidth()
+    )
+
+    Spacer(modifier = Modifier.height(10.dp))
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        OutlinedButton(
+            onClick = { onNavigateToRoute("smart_collections_settings") },
+            modifier = Modifier.weight(1f)
+        ) {
+            Text("Settings")
+        }
+        Button(
+            onClick = { onRunAction("analyze media") },
+            modifier = Modifier.weight(1f)
+        ) {
+            Text("Analyze Now")
         }
     }
 }

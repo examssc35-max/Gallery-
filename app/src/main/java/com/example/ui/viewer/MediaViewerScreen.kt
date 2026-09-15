@@ -79,7 +79,9 @@ import com.example.domain.repository.BackupRepository
 import com.example.domain.repository.MediaRepository
 import com.example.domain.repository.R2Repository
 import com.example.domain.repository.UploadResult
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -97,7 +99,48 @@ fun MediaViewerScreen(
     onBack: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    if (mediaList.isEmpty()) {
+    var effectiveMediaList by remember(mediaList) {
+        mutableStateOf(
+            if (mediaList.isNotEmpty()) mediaList
+            else MediaViewerStateHolder.activeViewerList
+        )
+    }
+    var isLoadingFallback by remember { mutableStateOf(effectiveMediaList.isEmpty()) }
+
+    LaunchedEffect(mediaList) {
+        if (mediaList.isNotEmpty()) {
+            effectiveMediaList = mediaList
+            isLoadingFallback = false
+        } else if (MediaViewerStateHolder.activeViewerList.isNotEmpty()) {
+            effectiveMediaList = MediaViewerStateHolder.activeViewerList
+            isLoadingFallback = false
+        } else {
+            isLoadingFallback = true
+            val loaded = withContext(Dispatchers.IO) {
+                try {
+                    mediaRepository.loadMediaItems()
+                } catch (_: Exception) {
+                    emptyList()
+                }
+            }
+            effectiveMediaList = loaded
+            isLoadingFallback = false
+        }
+    }
+
+    if (isLoadingFallback) {
+        Box(
+            modifier = modifier
+                .fillMaxSize()
+                .background(Color.Black),
+            contentAlignment = Alignment.Center
+        ) {
+            CircularProgressIndicator(color = Color.White)
+        }
+        return
+    }
+
+    if (effectiveMediaList.isEmpty()) {
         Box(
             modifier = modifier
                 .fillMaxSize()
@@ -141,16 +184,17 @@ fun MediaViewerScreen(
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
 
-    val safeInitialIndex = initialIndex.coerceIn(0, mediaList.size - 1)
+    val safeInitialIndex = initialIndex.coerceIn(0, effectiveMediaList.size - 1)
     val pagerState = rememberPagerState(
         initialPage = safeInitialIndex,
-        pageCount = { mediaList.size }
+        pageCount = { effectiveMediaList.size }
     )
 
-    val currentItem = mediaList.getOrNull(pagerState.currentPage) ?: mediaList[0]
+    val currentItem = effectiveMediaList.getOrNull(pagerState.currentPage) ?: effectiveMediaList[0]
 
     var controlsVisible by remember { mutableStateOf(true) }
-    var isPlayingVideo by remember { mutableStateOf(initialPlayVideo && (mediaList.getOrNull(safeInitialIndex)?.isVideo == true)) }
+    val shouldPlayInitially = initialPlayVideo || MediaViewerStateHolder.activeViewerAutoPlayVideo
+    var isPlayingVideo by remember { mutableStateOf(shouldPlayInitially && (effectiveMediaList.getOrNull(safeInitialIndex)?.isVideo == true)) }
     var isCurrentItemZoomed by remember { mutableStateOf(false) }
     var resetZoomTrigger by remember { mutableIntStateOf(0) }
     var isFavorite by remember(currentItem.id) { mutableStateOf(currentItem.isFavorite) }
@@ -161,6 +205,7 @@ fun MediaViewerScreen(
     var isDownloaded by remember(currentItem.id) { mutableStateOf(false) }
     var uploadStatusText by remember { mutableStateOf<String?>(null) }
     var isAlreadyBackedUp by remember(currentItem.id) { mutableStateOf(false) }
+    var isFirstLaunch by remember { mutableStateOf(true) }
 
     // Intercept back navigation: video playback -> reset zoom -> return to gallery
     BackHandler {
@@ -177,7 +222,10 @@ fun MediaViewerScreen(
             isAlreadyBackedUp = backupRepository.isAlreadyBackedUp(currentItem)
         }
         isFavorite = mediaRepository.isFavorite(currentItem.id)
-        isPlayingVideo = false
+        if (!isFirstLaunch) {
+            isPlayingVideo = false
+        }
+        isFirstLaunch = false
         isDownloaded = false
         isCurrentItemZoomed = false
     }
@@ -214,10 +262,10 @@ fun MediaViewerScreen(
         HorizontalPager(
             state = pagerState,
             modifier = Modifier.fillMaxSize(),
-            key = { page -> val item = mediaList.getOrNull(page); if (item != null) "${item.id}_${item.path}_$page" else "$page" },
+            key = { page -> val item = effectiveMediaList.getOrNull(page); if (item != null) "${item.id}_${item.path}_$page" else "$page" },
             beyondViewportPageCount = 1
         ) { page ->
-            val item = mediaList[page]
+            val item = effectiveMediaList[page]
             val isCurrentPage = (page == pagerState.currentPage)
             if (item.isVideo) {
                 Box(
@@ -311,7 +359,7 @@ fun MediaViewerScreen(
                         Column {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Text(
-                                    text = "${pagerState.currentPage + 1} of ${mediaList.size}",
+                                    text = "${pagerState.currentPage + 1} of ${effectiveMediaList.size}",
                                     color = Color.White,
                                     fontSize = 14.sp,
                                     fontWeight = FontWeight.SemiBold

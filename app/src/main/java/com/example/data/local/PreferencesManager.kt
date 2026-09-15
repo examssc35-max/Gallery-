@@ -87,6 +87,15 @@ class PreferencesManager(
         // AI Assistant Settings
         val KEY_AI_PROVIDER_MODE = stringPreferencesKey("ai_provider_mode")
         val KEY_AI_GEMINI_API_KEY = stringPreferencesKey("ai_gemini_api_key")
+
+        // Smart Collections Settings
+        val KEY_SMART_COLLECTIONS_ENABLED = booleanPreferencesKey("smart_collections_enabled")
+        val KEY_SMART_COLLECTIONS_AUTO_ANALYZE = booleanPreferencesKey("smart_collections_auto_analyze")
+        val KEY_SMART_COLLECTIONS_ANALYZE_VIDEOS = booleanPreferencesKey("smart_collections_analyze_videos")
+        val KEY_SMART_COLLECTIONS_WIFI_ONLY = booleanPreferencesKey("smart_collections_wifi_only")
+        val KEY_SMART_COLLECTIONS_REQUIRE_CHARGING = booleanPreferencesKey("smart_collections_require_charging")
+        val KEY_SMART_COLLECTIONS_MODEL_INSTALLED = booleanPreferencesKey("smart_collections_model_installed")
+        val KEY_SMART_COLLECTIONS_MODEL_VERSION = stringPreferencesKey("smart_collections_model_version")
     }
 
     val gridColumnsFlow: Flow<Int> = context.dataStore.data.map { prefs ->
@@ -352,6 +361,77 @@ class PreferencesManager(
     suspend fun clearAiGeminiApiKey() {
         context.dataStore.edit { prefs ->
             prefs.remove(KEY_AI_GEMINI_API_KEY)
+        }
+    }
+
+    // Smart Collections Flows & Setters
+    val smartCollectionsEnabledFlow: Flow<Boolean> = context.dataStore.data.map { prefs ->
+        prefs[KEY_SMART_COLLECTIONS_ENABLED] ?: true
+    }
+
+    val smartCollectionsAutoAnalyzeFlow: Flow<Boolean> = context.dataStore.data.map { prefs ->
+        prefs[KEY_SMART_COLLECTIONS_AUTO_ANALYZE] ?: true
+    }
+
+    val smartCollectionsAnalyzeVideosFlow: Flow<Boolean> = context.dataStore.data.map { prefs ->
+        prefs[KEY_SMART_COLLECTIONS_ANALYZE_VIDEOS] ?: true
+    }
+
+    val smartCollectionsWifiOnlyFlow: Flow<Boolean> = context.dataStore.data.map { prefs ->
+        prefs[KEY_SMART_COLLECTIONS_WIFI_ONLY] ?: false
+    }
+
+    val smartCollectionsRequireChargingFlow: Flow<Boolean> = context.dataStore.data.map { prefs ->
+        prefs[KEY_SMART_COLLECTIONS_REQUIRE_CHARGING] ?: false
+    }
+
+    val smartCollectionsModelInstalledFlow: Flow<Boolean> = context.dataStore.data.map { prefs ->
+        prefs[KEY_SMART_COLLECTIONS_MODEL_INSTALLED] ?: false
+    }
+
+    val smartCollectionsModelVersionFlow: Flow<String> = context.dataStore.data.map { prefs ->
+        prefs[KEY_SMART_COLLECTIONS_MODEL_VERSION] ?: "v1.0"
+    }
+
+    suspend fun setSmartCollectionsEnabled(enabled: Boolean) {
+        context.dataStore.edit { prefs ->
+            prefs[KEY_SMART_COLLECTIONS_ENABLED] = enabled
+        }
+    }
+
+    suspend fun setSmartCollectionsAutoAnalyze(autoAnalyze: Boolean) {
+        context.dataStore.edit { prefs ->
+            prefs[KEY_SMART_COLLECTIONS_AUTO_ANALYZE] = autoAnalyze
+        }
+    }
+
+    suspend fun setSmartCollectionsAnalyzeVideos(analyzeVideos: Boolean) {
+        context.dataStore.edit { prefs ->
+            prefs[KEY_SMART_COLLECTIONS_ANALYZE_VIDEOS] = analyzeVideos
+        }
+    }
+
+    suspend fun setSmartCollectionsWifiOnly(wifiOnly: Boolean) {
+        context.dataStore.edit { prefs ->
+            prefs[KEY_SMART_COLLECTIONS_WIFI_ONLY] = wifiOnly
+        }
+    }
+
+    suspend fun setSmartCollectionsRequireCharging(requireCharging: Boolean) {
+        context.dataStore.edit { prefs ->
+            prefs[KEY_SMART_COLLECTIONS_REQUIRE_CHARGING] = requireCharging
+        }
+    }
+
+    suspend fun setSmartCollectionsModelInstalled(installed: Boolean) {
+        context.dataStore.edit { prefs ->
+            prefs[KEY_SMART_COLLECTIONS_MODEL_INSTALLED] = installed
+        }
+    }
+
+    suspend fun setSmartCollectionsModelVersion(version: String) {
+        context.dataStore.edit { prefs ->
+            prefs[KEY_SMART_COLLECTIONS_MODEL_VERSION] = version
         }
     }
 }

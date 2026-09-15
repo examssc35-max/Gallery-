@@ -101,6 +101,19 @@ sealed class AiActionResult {
         val isSuccess: Boolean = true,
         val navigateRoute: String? = null
     ) : AiActionResult()
+
+    data class SmartCollectionResult(
+        val collection: com.example.domain.model.SmartCollection,
+        val items: List<MediaItem>
+    ) : AiActionResult()
+
+    data class SmartCollectionsListResult(
+        val collections: List<com.example.domain.model.SmartCollection>
+    ) : AiActionResult()
+
+    data class SmartAnalysisStatusResult(
+        val status: com.example.domain.model.AnalysisStatus
+    ) : AiActionResult()
 }
 
 data class AiMessage(

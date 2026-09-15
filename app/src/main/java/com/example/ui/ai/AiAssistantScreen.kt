@@ -216,27 +216,17 @@ fun AiAssistantScreen(
                                 return@ChatMessageItem
                             }
 
-                            // 1. Check permissions for local media
-                            if (!clickedItem.isCloud && !checkMediaPermission(context, clickedItem.isVideo)) {
-                                scope.launch { snackbarHostState.showSnackbar("Permission is required to access this media.") }
-                                return@ChatMessageItem
-                            }
+                            val itemsToDisplay = if (resultItems.isNotEmpty()) resultItems else listOf(clickedItem)
+                            val targetIndex = itemsToDisplay.indexOfFirst { it.id == clickedItem.id }
+                                .takeIf { it >= 0 } ?: clickedIndex.coerceIn(0, itemsToDisplay.size - 1)
 
-                            // 2. MediaStore reference validation
-                            if (!isMediaAvailable(context, clickedItem)) {
-                                scope.launch { snackbarHostState.showSnackbar("This file is no longer available.") }
-                                return@ChatMessageItem
-                            }
+                            com.example.ui.viewer.MediaViewerStateHolder.setViewerData(
+                                items = itemsToDisplay,
+                                index = targetIndex,
+                                autoPlayVideo = clickedItem.isVideo
+                            )
 
-                            // 3. Filter valid items for swipe support
-                            val validItems = resultItems.filter { isMediaAvailable(context, it) }
-                            if (validItems.isEmpty()) {
-                                scope.launch { snackbarHostState.showSnackbar("This file is no longer available.") }
-                                return@ChatMessageItem
-                            }
-
-                            val targetIndex = validItems.indexOfFirst { it.id == clickedItem.id }.coerceAtLeast(0)
-                            onOpenViewer(targetIndex, validItems, clickedItem.isVideo)
+                            onOpenViewer(targetIndex, itemsToDisplay, clickedItem.isVideo)
                         },
                         onNavigateToRoute = onNavigateToRoute,
                         onRunAction = { actionText ->

@@ -26,6 +26,7 @@ enum class GalleryTab {
     VIDEOS,
     FAVORITES,
     ALBUMS,
+    COLLECTIONS,
     CLOUD
 }
 
@@ -270,6 +271,7 @@ class GalleryViewModel(
                 GalleryTab.VIDEOS -> list.filter { it.isVideo }
                 GalleryTab.FAVORITES -> list.filter { it.isFavorite }
                 GalleryTab.ALBUMS -> list
+                GalleryTab.COLLECTIONS -> emptyList()
                 GalleryTab.CLOUD -> emptyList()
             }
         }

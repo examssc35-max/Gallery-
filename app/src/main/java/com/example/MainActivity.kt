@@ -45,6 +45,7 @@ import com.example.ui.storage.StorageUsageViewModel
 import com.example.ui.theme.MyApplicationTheme
 import com.example.ui.trash.TrashScreen
 import com.example.ui.viewer.MediaViewerScreen
+import com.example.ui.viewer.MediaViewerStateHolder
 
 class MainActivity : ComponentActivity() {
 
@@ -73,12 +74,29 @@ class MainActivity : ComponentActivity() {
         val getStorageUsageUseCase = GetStorageUsageUseCase(r2Repository)
         val storageUsageViewModel = StorageUsageViewModel(getStorageUsageUseCase, r2Repository)
 
+        val smartCollectionClassifier = com.example.ai.classifier.OnDeviceVisionClassifier(
+            context = applicationContext,
+            preferencesManager = preferencesManager
+        )
+        val smartCollectionRepository = com.example.data.repository.SmartCollectionRepositoryImpl(
+            context = applicationContext,
+            database = database,
+            mediaRepository = mediaRepository,
+            classifier = smartCollectionClassifier,
+            preferencesManager = preferencesManager
+        )
+        val smartCollectionsViewModel = com.example.ui.smartcollections.SmartCollectionsViewModel(
+            smartCollectionRepository = smartCollectionRepository,
+            preferencesManager = preferencesManager
+        )
+
         val galleryAssistantTools = com.example.ai.tools.GalleryAssistantToolsImpl(
             mediaRepository = mediaRepository,
             backupRepository = backupRepository,
             r2Repository = r2Repository,
             preferencesManager = preferencesManager,
-            context = applicationContext
+            context = applicationContext,
+            smartCollectionRepository = smartCollectionRepository
         )
         val aiAgentOrchestrator = com.example.ai.orchestrator.AiAgentOrchestrator(
             tools = galleryAssistantTools,
@@ -115,7 +133,18 @@ class MainActivity : ComponentActivity() {
                                 viewModel = galleryViewModel,
                                 r2Repository = r2Repository,
                                 cloudTabViewModel = cloudTabViewModel,
+                                smartCollectionsViewModel = smartCollectionsViewModel,
+                                onCollectionClick = { collection ->
+                                    navController.navigate(NavRoute.SmartCollectionDetail.createRoute(collection.id))
+                                },
+                                onNavigateToSmartCollections = {
+                                    navController.navigate(NavRoute.SmartCollections.route)
+                                },
+                                onNavigateToSmartCollectionsSettings = {
+                                    navController.navigate(NavRoute.SmartCollectionsSettings.route)
+                                },
                                 onOpenViewer = { index, items ->
+                                    com.example.ui.viewer.MediaViewerStateHolder.setViewerData(items, index, false)
                                     activeViewerList = items
                                     activeViewerIndex = index
                                     activeViewerAutoPlayVideo = false
@@ -136,11 +165,13 @@ class MainActivity : ComponentActivity() {
                             route = NavRoute.MediaViewer.route,
                             arguments = listOf(navArgument("index") { type = NavType.IntType })
                         ) { backStackEntry ->
-                            val indexArg = backStackEntry.arguments?.getInt("index") ?: activeViewerIndex
+                            val indexArg = backStackEntry.arguments?.getInt("index") ?: MediaViewerStateHolder.activeViewerIndex
+                            val currentList = if (activeViewerList.isNotEmpty()) activeViewerList else com.example.ui.viewer.MediaViewerStateHolder.activeViewerList
+                            val shouldPlay = activeViewerAutoPlayVideo || com.example.ui.viewer.MediaViewerStateHolder.activeViewerAutoPlayVideo
                             MediaViewerScreen(
-                                mediaList = activeViewerList,
+                                mediaList = currentList,
                                 initialIndex = indexArg,
-                                initialPlayVideo = activeViewerAutoPlayVideo,
+                                initialPlayVideo = shouldPlay,
                                 mediaRepository = mediaRepository,
                                 backupRepository = backupRepository,
                                 r2Repository = r2Repository,
@@ -178,6 +209,46 @@ class MainActivity : ComponentActivity() {
                                 preferencesManager = preferencesManager,
                                 storageUsageViewModel = storageUsageViewModel,
                                 onNavigateToStorageUsage = { navController.navigate(NavRoute.CloudStorageUsage.route) },
+                                onNavigateToSmartCollectionsSettings = { navController.navigate(NavRoute.SmartCollectionsSettings.route) },
+                                onBack = { navController.popBackStack() }
+                            )
+                        }
+
+                        composable(NavRoute.SmartCollections.route) {
+                            com.example.ui.smartcollections.SmartCollectionsScreen(
+                                viewModel = smartCollectionsViewModel,
+                                onCollectionClick = { collection ->
+                                    navController.navigate(NavRoute.SmartCollectionDetail.createRoute(collection.id))
+                                },
+                                onNavigateToSettings = {
+                                    navController.navigate(NavRoute.SmartCollectionsSettings.route)
+                                },
+                                onBack = { navController.popBackStack() }
+                            )
+                        }
+
+                        composable(
+                            route = NavRoute.SmartCollectionDetail.route,
+                            arguments = listOf(navArgument("collectionId") { type = NavType.StringType })
+                        ) { backStackEntry ->
+                            val collectionId = backStackEntry.arguments?.getString("collectionId") ?: ""
+                            com.example.ui.smartcollections.SmartCollectionDetailScreen(
+                                collectionId = collectionId,
+                                viewModel = smartCollectionsViewModel,
+                                onOpenViewer = { initialIndex, items ->
+                                    com.example.ui.viewer.MediaViewerStateHolder.setViewerData(items, initialIndex, false)
+                                    activeViewerList = items
+                                    activeViewerIndex = initialIndex
+                                    activeViewerAutoPlayVideo = false
+                                    navController.navigate(NavRoute.MediaViewer.createRoute(initialIndex))
+                                },
+                                onBack = { navController.popBackStack() }
+                            )
+                        }
+
+                        composable(NavRoute.SmartCollectionsSettings.route) {
+                            com.example.ui.smartcollections.SmartCollectionsSettingsScreen(
+                                viewModel = smartCollectionsViewModel,
                                 onBack = { navController.popBackStack() }
                             )
                         }
@@ -222,6 +293,7 @@ class MainActivity : ComponentActivity() {
                                 viewModel = aiAssistantViewModel,
                                 onNavigateBack = { navController.popBackStack() },
                                 onOpenViewer = { initialIndex, items, autoPlayVideo ->
+                                    com.example.ui.viewer.MediaViewerStateHolder.setViewerData(items, initialIndex, autoPlayVideo)
                                     activeViewerList = items
                                     activeViewerIndex = initialIndex
                                     activeViewerAutoPlayVideo = autoPlayVideo
@@ -237,6 +309,8 @@ class MainActivity : ComponentActivity() {
                                         "storage" -> navController.navigate(NavRoute.Storage.route)
                                         "cloud_storage_usage" -> navController.navigate(NavRoute.CloudStorageUsage.route)
                                         "trash" -> navController.navigate(NavRoute.Trash.route)
+                                        "smart_collections" -> navController.navigate(NavRoute.SmartCollections.route)
+                                        "smart_collections_settings" -> navController.navigate(NavRoute.SmartCollectionsSettings.route)
                                         else -> {
                                             try {
                                                 navController.navigate(route)

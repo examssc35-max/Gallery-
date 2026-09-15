@@ -125,6 +125,10 @@ fun GalleryScreen(
     onNavigateToTrash: () -> Unit,
     onNavigateToCloudStorageUsage: () -> Unit = {},
     onNavigateToAiAssistant: () -> Unit = {},
+    smartCollectionsViewModel: com.example.ui.smartcollections.SmartCollectionsViewModel? = null,
+    onNavigateToSmartCollections: () -> Unit = {},
+    onCollectionClick: (com.example.domain.model.SmartCollection) -> Unit = {},
+    onNavigateToSmartCollectionsSettings: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -472,6 +476,14 @@ fun GalleryScreen(
                                         }
                                     )
                                     DropdownMenuItem(
+                                        leadingIcon = { Icon(Icons.Default.AutoAwesome, contentDescription = null) },
+                                        text = { Text("Smart Collections") },
+                                        onClick = {
+                                            showOverflowMenu = false
+                                            viewModel.selectTab(GalleryTab.COLLECTIONS)
+                                        }
+                                    )
+                                    DropdownMenuItem(
                                         leadingIcon = { Icon(Icons.Default.ContentCopy, contentDescription = null) },
                                         text = { Text("Duplicate Finder") },
                                         onClick = {
@@ -546,6 +558,14 @@ fun GalleryScreen(
                                             modifier = Modifier.size(16.dp)
                                         )
                                         Spacer(modifier = Modifier.width(4.dp))
+                                    } else if (tab == GalleryTab.COLLECTIONS) {
+                                        Icon(
+                                            imageVector = Icons.Default.AutoAwesome,
+                                            contentDescription = null,
+                                            tint = if (uiState.selectedTab == tab) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(4.dp))
                                     }
                                     Text(
                                         text = when (tab) {
@@ -554,6 +574,7 @@ fun GalleryScreen(
                                             GalleryTab.VIDEOS -> "Videos"
                                             GalleryTab.FAVORITES -> "Favorites"
                                             GalleryTab.ALBUMS -> "Albums"
+                                            GalleryTab.COLLECTIONS -> "Collections"
                                             GalleryTab.CLOUD -> "Cloud"
                                         },
                                         fontSize = 13.sp,
@@ -588,10 +609,10 @@ fun GalleryScreen(
                     }
                 }
 
-                val isRefreshing = if (uiState.selectedTab == GalleryTab.CLOUD) {
-                    cloudTabUiState.isRefreshing
-                } else {
-                    uiState.isRefreshing
+                val isRefreshing = when (uiState.selectedTab) {
+                    GalleryTab.CLOUD -> cloudTabUiState.isRefreshing
+                    GalleryTab.COLLECTIONS -> smartCollectionsViewModel?.uiState?.collectAsState()?.value?.isAnalyzing == true
+                    else -> uiState.isRefreshing
                 }
 
                 // Pull to Refresh container for tab content
@@ -600,6 +621,8 @@ fun GalleryScreen(
                     onRefresh = {
                         if (uiState.selectedTab == GalleryTab.CLOUD) {
                             cloudTabViewModel.refresh()
+                        } else if (uiState.selectedTab == GalleryTab.COLLECTIONS) {
+                            smartCollectionsViewModel?.startAnalysis(forceAll = false)
                         } else {
                             viewModel.refreshMedia(silent = false)
                         }
@@ -617,6 +640,15 @@ fun GalleryScreen(
                                 onOpenViewer = onOpenViewer,
                                 onConnectR2 = onNavigateToSettings,
                                 onNavigateToStorageUsage = onNavigateToCloudStorageUsage,
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        }
+                        uiState.selectedTab == GalleryTab.COLLECTIONS && smartCollectionsViewModel != null -> {
+                            com.example.ui.smartcollections.SmartCollectionsScreen(
+                                viewModel = smartCollectionsViewModel,
+                                onCollectionClick = onCollectionClick,
+                                onNavigateToSettings = onNavigateToSmartCollectionsSettings,
+                                showTopBar = false,
                                 modifier = Modifier.fillMaxSize()
                             )
                         }

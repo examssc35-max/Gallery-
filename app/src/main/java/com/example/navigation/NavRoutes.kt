@@ -13,4 +13,9 @@ sealed class NavRoute(val route: String) {
     data object CloudStorageUsage : NavRoute("cloud_storage_usage")
     data object Trash : NavRoute("trash")
     data object AiAssistant : NavRoute("ai_assistant")
+    data object SmartCollections : NavRoute("smart_collections")
+    data object SmartCollectionDetail : NavRoute("smart_collection/{collectionId}") {
+        fun createRoute(collectionId: String) = "smart_collection/$collectionId"
+    }
+    data object SmartCollectionsSettings : NavRoute("smart_collections_settings")
 }

@@ -26,6 +26,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Security
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Sort
 import androidx.compose.material.icons.filled.ViewModule
 import androidx.compose.material.icons.filled.Visibility
@@ -83,6 +84,7 @@ fun SettingsScreen(
     preferencesManager: PreferencesManager,
     storageUsageViewModel: StorageUsageViewModel? = null,
     onNavigateToStorageUsage: () -> Unit = {},
+    onNavigateToSmartCollectionsSettings: () -> Unit = {},
     onBack: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
@@ -583,6 +585,64 @@ fun SettingsScreen(
                                     modifier = Modifier.padding(10.dp)
                                 )
                             }
+                        }
+                    }
+                }
+            }
+
+            // Smart Collections Section
+            item {
+                val smartCollectionsEnabled by preferencesManager.smartCollectionsEnabledFlow.collectAsState(initial = true)
+                Card(
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+                    modifier = Modifier.fillMaxWidth().testTag("smart_collections_settings_card")
+                ) {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = Icons.Default.AutoAwesome,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Column {
+                                    Text(
+                                        text = "Smart Collections",
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Text(
+                                        text = if (smartCollectionsEnabled) "Enabled (100% On-Device AI)" else "Disabled",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                        }
+
+                        Text(
+                            text = "Automatically organize your photos and videos into visual categories (Nature, Food, People, Travel, etc.) locally on your device.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+
+                        OutlinedButton(
+                            onClick = onNavigateToSmartCollectionsSettings,
+                            modifier = Modifier.fillMaxWidth().testTag("manage_smart_collections_btn")
+                        ) {
+                            Icon(imageVector = Icons.Default.Settings, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Manage Smart Collections Settings")
                         }
                     }
                 }

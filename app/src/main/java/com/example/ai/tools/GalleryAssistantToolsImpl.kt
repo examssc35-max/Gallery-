@@ -27,7 +27,8 @@ class GalleryAssistantToolsImpl(
     private val backupRepository: BackupRepository,
     private val r2Repository: R2Repository,
     private val preferencesManager: PreferencesManager,
-    private val context: Context
+    private val context: Context,
+    private val smartCollectionRepository: com.example.domain.repository.SmartCollectionRepository? = null
 ) : GalleryAssistantTools {
 
     private fun formatBytes(bytes: Long): String {
@@ -503,6 +504,98 @@ class GalleryAssistantToolsImpl(
             ToolResult.Success(actionResult, actionResult)
         } catch (e: Exception) {
             ToolResult.Error("Failed to find duplicates: ${e.message}", e)
+        }
+    }
+
+    override suspend fun getSmartCollections(): ToolResult<List<com.example.domain.model.SmartCollection>> = withContext(Dispatchers.IO) {
+        val repo = smartCollectionRepository ?: return@withContext ToolResult.Error("Smart Collections repository not initialized")
+        try {
+            val collections = repo.getSmartCollections()
+            val actionResult = AiActionResult.SmartCollectionsListResult(collections)
+            ToolResult.Success(collections, actionResult)
+        } catch (e: Exception) {
+            ToolResult.Error("Failed to fetch Smart Collections: ${e.message}", e)
+        }
+    }
+
+    override suspend fun getCollectionItems(collectionId: String): ToolResult<List<MediaItem>> = withContext(Dispatchers.IO) {
+        val repo = smartCollectionRepository ?: return@withContext ToolResult.Error("Smart Collections repository not initialized")
+        try {
+            val items = repo.getCollectionMedia(collectionId)
+            val collections = repo.getSmartCollections()
+            val collection = collections.firstOrNull { it.id.equals(collectionId, ignoreCase = true) }
+                ?: com.example.domain.model.SmartCollection(
+                    id = collectionId,
+                    name = collectionId.replaceFirstChar { it.uppercase() },
+                    itemCount = items.size
+                )
+            val actionResult = AiActionResult.SmartCollectionResult(collection, items)
+            ToolResult.Success(items, actionResult)
+        } catch (e: Exception) {
+            ToolResult.Error("Failed to fetch items for $collectionId: ${e.message}", e)
+        }
+    }
+
+    override suspend fun refreshSmartCollections(): ToolResult<String> = withContext(Dispatchers.IO) {
+        val repo = smartCollectionRepository ?: return@withContext ToolResult.Error("Smart Collections repository not initialized")
+        try {
+            repo.analyzeUnprocessedMedia(forceAll = false)
+            ToolResult.Success("Refreshing Smart Collections...")
+        } catch (e: Exception) {
+            ToolResult.Error("Failed to refresh Smart Collections: ${e.message}", e)
+        }
+    }
+
+    override suspend fun analyzeUnprocessedMedia(): ToolResult<String> = withContext(Dispatchers.IO) {
+        val repo = smartCollectionRepository ?: return@withContext ToolResult.Error("Smart Collections repository not initialized")
+        try {
+            val res = repo.analyzeUnprocessedMedia(forceAll = false)
+            if (res.isSuccess) {
+                ToolResult.Success("Started on-device analysis for unclassified media.")
+            } else {
+                ToolResult.Error(res.exceptionOrNull()?.message ?: "Analysis failed to start")
+            }
+        } catch (e: Exception) {
+            ToolResult.Error("Failed to start analysis: ${e.message}", e)
+        }
+    }
+
+    override suspend fun getAnalysisStatus(): ToolResult<com.example.domain.model.AnalysisStatus> = withContext(Dispatchers.IO) {
+        val repo = smartCollectionRepository ?: return@withContext ToolResult.Error("Smart Collections repository not initialized")
+        try {
+            val status = repo.getCurrentAnalysisStatus()
+            val actionResult = AiActionResult.SmartAnalysisStatusResult(status)
+            ToolResult.Success(status, actionResult)
+        } catch (e: Exception) {
+            ToolResult.Error("Failed to get analysis status: ${e.message}", e)
+        }
+    }
+
+    override suspend fun clearClassificationData(): ToolResult<String> = withContext(Dispatchers.IO) {
+        val repo = smartCollectionRepository ?: return@withContext ToolResult.Error("Smart Collections repository not initialized")
+        try {
+            repo.clearClassificationData()
+            ToolResult.Success("All Smart Collections classification data has been cleared from this device.")
+        } catch (e: Exception) {
+            ToolResult.Error("Failed to clear Smart Collections data: ${e.message}", e)
+        }
+    }
+
+    override suspend fun openSmartCollection(collectionId: String): ToolResult<Pair<com.example.domain.model.SmartCollection, List<MediaItem>>> = withContext(Dispatchers.IO) {
+        val repo = smartCollectionRepository ?: return@withContext ToolResult.Error("Smart Collections repository not initialized")
+        try {
+            val items = repo.getCollectionMedia(collectionId)
+            val collections = repo.getSmartCollections()
+            val collection = collections.firstOrNull { it.id.equals(collectionId, ignoreCase = true) }
+                ?: com.example.domain.model.SmartCollection(
+                    id = collectionId,
+                    name = collectionId.replaceFirstChar { it.uppercase() },
+                    itemCount = items.size
+                )
+            val actionResult = AiActionResult.SmartCollectionResult(collection, items)
+            ToolResult.Success(Pair(collection, items), actionResult)
+        } catch (e: Exception) {
+            ToolResult.Error("Failed to open Smart Collection $collectionId: ${e.message}", e)
         }
     }
 
