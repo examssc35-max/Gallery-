@@ -20,31 +20,6 @@ jobs:
           distribution: 'temurin'
           cache: 'gradle'
 
-      - name: Setup Android SDK (Manual)
-        run: |
-          export ANDROID_HOME=$HOME/android-sdk
-          mkdir -p $ANDROID_HOME
-          
-          cd $ANDROID_HOME
-          wget -q https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip
-          unzip -q commandlinetools-linux-11076708_latest.zip
-          
-          mkdir -p $ANDROID_HOME/cmdline-tools/latest
-          mv cmdline-tools/* $ANDROID_HOME/cmdline-tools/latest/ 2>/dev/null || true
-          
-          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses >/dev/null 2>&1
-          
-          $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager \
-            "platform-tools" \
-            "platforms;android-36" \
-            "platforms;android-34" \
-            "build-tools;36.0.0" \
-            "build-tools;34.0.0" \
-            --no_https >/dev/null 2>&1
-          
-          echo "ANDROID_HOME=$ANDROID_HOME" >> $GITHUB_ENV
-          echo "$ANDROID_HOME/cmdline-tools/latest/bin" >> $GITHUB_PATH
-
       - name: Create Gradle Wrapper
         run: |
           if [ ! -f "gradlew" ]; then
@@ -52,30 +27,23 @@ jobs:
           fi
           chmod +x gradlew
 
-      - name: Build Debug APK (Verbose)
-        run: |
-          ./gradlew assembleDebug \
-            --no-daemon \
-            --stacktrace \
-            --info \
-            -Dorg.gradle.jvmargs="-Xmx4g -XX:+UseG1GC" 2>&1 | tee build.log
+      - name: Build Debug APK
+        run: ./gradlew assembleDebug --no-daemon -q
+        env:
+          GRADLE_OPTS: "-Xmx4g -XX:+UseG1GC"
 
-      - name: Show Build Log
-        if: failure()
-        run: |
-          echo "=== BUILD ERROR LOG ==="
-          tail -100 build.log
-
-      - name: Upload APK (Success)
+      - name: Upload APK
         if: success()
         uses: actions/upload-artifact@v4
         with:
           name: debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
+          retention-days: 7
 
-      - name: Upload Build Log
-        if: always()
+      - name: Upload Build Logs (Failure)
+        if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: build-logs
-          path: build.log
+          name: build-failure-logs
+          path: build/
+          retention-days: 3
