@@ -7,7 +7,7 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
 
     steps:
       - name: Checkout code
@@ -20,29 +20,34 @@ jobs:
           distribution: 'temurin'
           cache: 'gradle'
 
-      - name: Setup Android SDK Manually
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v2.0.10
+
+      - name: Install SDK Licenses
         run: |
-          mkdir -p $ANDROID_HOME/cmdline-tools
-          cd $ANDROID_HOME/cmdline-tools
-          
-          wget -q https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip
-          unzip -q commandlinetools-linux-11076708_latest.zip
-          
-          mkdir -p latest
-          mv cmdline-tools/* latest/ 2>/dev/null || true
-          
-          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses
+          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
+
+      - name: Install Android Components
+        run: |
           $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "platform-tools"
           $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "platforms;android-36"
           $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "build-tools;36.0.0"
 
-      - name: Make gradlew executable
-        run: chmod +x gradlew
+      - name: Create Gradle Wrapper
+        run: |
+          if [ ! -f "gradlew" ]; then
+            echo "Creating Gradle wrapper..."
+            gradle wrapper --gradle-version=9.3.1 --distribution-type=bin 2>&1 || true
+          fi
+          if [ -f "gradlew" ]; then
+            chmod +x gradlew
+            echo "✓ Gradle wrapper ready"
+          fi
 
       - name: Build Debug APK
-        run: ./gradlew assembleDebug -q --no-daemon
+        run: ./gradlew assembleDebug --no-daemon -q
         env:
-          GRADLE_OPTS: "-Xmx4g -XX:+UseG1GC"
+          GRADLE_OPTS: "-Xmx4g -XX:+UseG1GC -Dorg.gradle.jvmargs=-Xmx4g"
 
       - name: Upload APK
         if: success()
@@ -55,7 +60,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: build-failure-logs
+          name: build-logs
           path: |
-            app/build/outputs/
+            app/build/
             build/
