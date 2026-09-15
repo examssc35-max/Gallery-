@@ -20,14 +20,23 @@ jobs:
           distribution: 'temurin'
           cache: 'gradle'
 
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
-        with:
-          log-accepted-android-sdk-licenses: true
-
-      - name: Install Android SDK 36 & Build Tools
+      - name: Setup Android SDK Manually
         run: |
-          echo "y" | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses
+          mkdir -p $ANDROID_HOME/cmdline-tools
+          cd $ANDROID_HOME/cmdline-tools
+          
+          # Download Android Command Line Tools
+          wget -q https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip
+          unzip -q commandlinetools-linux-11076708_latest.zip
+          
+          # Create 'latest' symlink
+          mkdir -p latest
+          mv cmdline-tools/* latest/ 2>/dev/null || true
+          
+          # Accept licenses
+          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses
+          
+          # Install required components
           $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "platform-tools"
           $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "platforms;android-36"
           $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "build-tools;36.0.0"
