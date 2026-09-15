@@ -13,6 +13,17 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Debug - List files
+        run: |
+          echo "=== Root Directory ==="
+          ls -la
+          echo ""
+          echo "=== Checking gradlew ==="
+          find . -name "gradlew" -type f
+          echo ""
+          echo "=== Full Directory Structure ==="
+          find . -type f -name "*.gradle" | head -20
+
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
@@ -25,24 +36,26 @@ jobs:
           mkdir -p $ANDROID_HOME/cmdline-tools
           cd $ANDROID_HOME/cmdline-tools
           
-          # Download Android Command Line Tools
           wget -q https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip
           unzip -q commandlinetools-linux-11076708_latest.zip
           
-          # Create 'latest' symlink
           mkdir -p latest
           mv cmdline-tools/* latest/ 2>/dev/null || true
           
-          # Accept licenses
           yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses
-          
-          # Install required components
           $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "platform-tools"
           $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "platforms;android-36"
           $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "build-tools;36.0.0"
 
       - name: Make gradlew executable
-        run: chmod +x gradlew
+        run: |
+          if [ -f "gradlew" ]; then
+            chmod +x gradlew
+            echo "✓ gradlew found and made executable"
+          else
+            echo "✗ gradlew not found! Creating one..."
+            ./gradlew --version 2>/dev/null || echo "Gradlew wrapper missing"
+          fi
 
       - name: Build Debug APK
         run: ./gradlew assembleDebug -q --no-daemon
