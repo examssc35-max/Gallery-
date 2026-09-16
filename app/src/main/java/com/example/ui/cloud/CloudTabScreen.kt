@@ -38,6 +38,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.CloudOff
+import androidx.compose.material.icons.filled.CloudQueue
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
@@ -107,6 +108,7 @@ fun CloudTabScreen(
     onOpenViewer: (initialIndex: Int, items: List<MediaItem>) -> Unit,
     onConnectR2: () -> Unit,
     onNavigateToStorageUsage: () -> Unit = {},
+    onNavigateToConnectedServices: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -151,7 +153,9 @@ fun CloudTabScreen(
                 onToggleFlatten = { viewModel.toggleFlattenFolders() },
                 onShowSortMenu = { showSortMenu = true },
                 onNavigateToStorageUsage = onNavigateToStorageUsage,
-                onClearCategoryFilter = { viewModel.setCategoryFilter(null) }
+                onNavigateToConnectedServices = onNavigateToConnectedServices,
+                onClearCategoryFilter = { viewModel.setCategoryFilter(null) },
+                onProviderFilterChange = { viewModel.setProviderFilter(it) }
             )
 
             // Sort Menu Dropdown
@@ -205,7 +209,7 @@ fun CloudTabScreen(
                 ) {
                     Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)) {
                         Text(
-                            text = "Downloading from R2: $current / $total items",
+                            text = "Downloading files: $current / $total items",
                             style = MaterialTheme.typography.bodySmall,
                             fontWeight = FontWeight.Medium
                         )
@@ -222,7 +226,9 @@ fun CloudTabScreen(
             when {
                 // 1. Not connected state
                 !uiState.isConnected -> {
-                    CloudNotConnectedState(onConnectClick = onConnectR2)
+                    CloudNotConnectedState(
+                        onConnectClick = onNavigateToConnectedServices
+                    )
                 }
 
                 // 2. Loading initial data
@@ -232,7 +238,7 @@ fun CloudTabScreen(
                             CircularProgressIndicator()
                             Spacer(modifier = Modifier.height(16.dp))
                             Text(
-                                text = "Loading Cloudflare R2 files...",
+                                text = "Loading cloud media files...",
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -280,27 +286,52 @@ fun CloudTabScreen(
                                 }
                             }
 
-                            // Media Items
+                            // Media Items with Provider Source Badges
                             itemsIndexed(
                                 items = filteredItems,
                                 key = { _, item -> item.cloudKey ?: item.path }
                             ) { index, item ->
-                                MediaGridItem(
-                                    item = item,
-                                    isSelected = item.id in uiState.selectedIds,
-                                    isSelectionMode = uiState.isSelectionMode,
-                                    isBackedUp = true,
-                                    onClick = {
-                                        if (uiState.isSelectionMode) {
+                                Box {
+                                    MediaGridItem(
+                                        item = item,
+                                        isSelected = item.id in uiState.selectedIds,
+                                        isSelectionMode = uiState.isSelectionMode,
+                                        isBackedUp = true,
+                                        onClick = {
+                                            if (uiState.isSelectionMode) {
+                                                viewModel.toggleSelection(item.id)
+                                            } else {
+                                                onOpenViewer(index, filteredItems)
+                                            }
+                                        },
+                                        onLongClick = {
                                             viewModel.toggleSelection(item.id)
-                                        } else {
-                                            onOpenViewer(index, filteredItems)
                                         }
-                                    },
-                                    onLongClick = {
-                                        viewModel.toggleSelection(item.id)
+                                    )
+
+                                    // Provider Pill Badge
+                                    val badgeLabel = when (item.albumName?.lowercase()) {
+                                        "google photos" -> "Photos"
+                                        "microsoft onedrive", "onedrive" -> "OneDrive"
+                                        "dropbox" -> "Dropbox"
+                                        else -> "R2"
                                     }
-                                )
+                                    Surface(
+                                        color = Color.Black.copy(alpha = 0.65f),
+                                        shape = RoundedCornerShape(4.dp),
+                                        modifier = Modifier
+                                            .padding(4.dp)
+                                            .align(Alignment.TopStart)
+                                    ) {
+                                        Text(
+                                            text = badgeLabel,
+                                            color = Color.White,
+                                            fontSize = 9.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                                        )
+                                    }
+                                }
                             }
 
                             // Loading more indicator at the bottom
@@ -330,36 +361,32 @@ fun CloudTabScreen(
             modifier = Modifier.align(Alignment.BottomCenter)
         ) {
             Surface(
-                shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
                 color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                tonalElevation = 8.dp,
+                tonalElevation = 6.dp,
+                shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 10.dp),
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         IconButton(onClick = { viewModel.clearSelection() }) {
-                            Icon(imageVector = Icons.Default.Close, contentDescription = "Clear Selection")
+                            Icon(Icons.Default.Close, contentDescription = "Clear Selection")
                         }
                         Text(
                             text = "${uiState.selectedIds.size} selected",
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.Bold
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.SemiBold
                         )
                     }
 
-                    Row {
-                        // Select All
-                        IconButton(
-                            onClick = { viewModel.selectAll(filteredItems) },
-                            modifier = Modifier.testTag("cloud_select_all_button")
-                        ) {
-                            Icon(imageVector = Icons.Default.SelectAll, contentDescription = "Select All")
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        IconButton(onClick = { viewModel.selectAll(filteredItems) }) {
+                            Icon(Icons.Default.SelectAll, contentDescription = "Select All")
                         }
 
                         // Batch Download
@@ -368,35 +395,40 @@ fun CloudTabScreen(
                                 val selectedItems = filteredItems.filter { it.id in uiState.selectedIds }
                                 isBatchDownloading = true
                                 batchDownloadProgress = Pair(0, selectedItems.size)
+
                                 scope.launch {
-                                    val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
-                                    var count = 0
+                                    var downloaded = 0
                                     for ((idx, item) in selectedItems.withIndex()) {
-                                        batchDownloadProgress = Pair(idx + 1, selectedItems.size)
                                         val key = item.cloudKey ?: item.path
-                                        val targetFile = File(downloadsDir, item.name)
-                                        val res = r2Repository.downloadKeyToFile(key, targetFile)
+                                        val fileName = key.substringAfterLast('/')
+                                        val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+                                        val destFile = File(downloadsDir, fileName)
+
+                                        val res = r2Repository.downloadKeyToFile(key, destFile)
                                         if (res.isSuccess) {
-                                            count++
-                                            MediaScannerConnection.scanFile(context, arrayOf(targetFile.absolutePath), null, null)
+                                            downloaded++
+                                            MediaScannerConnection.scanFile(
+                                                context,
+                                                arrayOf(destFile.absolutePath),
+                                                arrayOf(item.mimeType),
+                                                null
+                                            )
                                         }
+                                        batchDownloadProgress = Pair(idx + 1, selectedItems.size)
                                     }
                                     isBatchDownloading = false
                                     batchDownloadProgress = null
                                     viewModel.clearSelection()
-                                    snackbarHostState.showSnackbar("Downloaded $count items to Downloads")
+                                    snackbarHostState.showSnackbar("Downloaded $downloaded files to Downloads folder")
                                 }
                             },
-                            modifier = Modifier.testTag("cloud_download_selected_button")
+                            enabled = !isBatchDownloading
                         ) {
-                            Icon(imageVector = Icons.Default.Download, contentDescription = "Download Selected")
+                            Icon(Icons.Default.Download, contentDescription = "Download Selected")
                         }
 
                         // Batch Delete
-                        IconButton(
-                            onClick = { showDeleteConfirmDialog = true },
-                            modifier = Modifier.testTag("cloud_delete_selected_button")
-                        ) {
+                        IconButton(onClick = { showDeleteConfirmDialog = true }) {
                             Icon(
                                 imageVector = Icons.Default.Delete,
                                 contentDescription = "Delete Selected",
@@ -419,10 +451,10 @@ fun CloudTabScreen(
         val selectedItems = filteredItems.filter { it.id in uiState.selectedIds }
         AlertDialog(
             onDismissRequest = { showDeleteConfirmDialog = false },
-            title = { Text("Delete from Cloudflare R2") },
+            title = { Text("Delete from Cloud") },
             text = {
                 Text(
-                    "Are you sure you want to delete ${selectedItems.size} file(s) from your Cloudflare R2 bucket? This cannot be undone."
+                    "Are you sure you want to delete ${selectedItems.size} file(s) from cloud storage? Providers that support deletion will remove the file(s). This cannot be undone."
                 )
             },
             confirmButton = {
@@ -431,7 +463,7 @@ fun CloudTabScreen(
                         showDeleteConfirmDialog = false
                         viewModel.deleteSelected(selectedItems) { deletedCount ->
                             scope.launch {
-                                snackbarHostState.showSnackbar("Deleted $deletedCount files from Cloudflare R2")
+                                snackbarHostState.showSnackbar("Deleted $deletedCount files from cloud storage")
                             }
                         }
                     }
@@ -442,6 +474,20 @@ fun CloudTabScreen(
             dismissButton = {
                 TextButton(onClick = { showDeleteConfirmDialog = false }) {
                     Text("Cancel")
+                }
+            }
+        )
+    }
+
+    // Error or capability notification dialog
+    if (uiState.errorMessage != null) {
+        AlertDialog(
+            onDismissRequest = { viewModel.clearErrorMessage() },
+            title = { Text("Cloud Storage Notice") },
+            text = { Text(uiState.errorMessage ?: "") },
+            confirmButton = {
+                TextButton(onClick = { viewModel.clearErrorMessage() }) {
+                    Text("OK")
                 }
             }
         )
@@ -459,7 +505,9 @@ private fun CloudSubHeader(
     onToggleFlatten: () -> Unit,
     onShowSortMenu: () -> Unit,
     onNavigateToStorageUsage: () -> Unit = {},
-    onClearCategoryFilter: () -> Unit = {}
+    onNavigateToConnectedServices: () -> Unit = {},
+    onClearCategoryFilter: () -> Unit = {},
+    onProviderFilterChange: (String) -> Unit = {}
 ) {
     Surface(
         color = MaterialTheme.colorScheme.surfaceContainerLow,
@@ -467,6 +515,21 @@ private fun CloudSubHeader(
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(modifier = Modifier.fillMaxWidth()) {
+            // Offline banner if applicable
+            if (uiState.isOffline) {
+                Surface(
+                    color = MaterialTheme.colorScheme.errorContainer,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        text = "You're offline. Cloud changes can't be synchronized right now.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onErrorContainer,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
+                    )
+                }
+            }
+
             if (isSearchActive) {
                 Row(
                     modifier = Modifier
@@ -478,7 +541,10 @@ private fun CloudSubHeader(
                         value = uiState.searchQuery,
                         onValueChange = onSearchQueryChange,
                         placeholder = { Text("Search cloud files...") },
-                        leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                        singleLine = true,
+                        leadingIcon = {
+                            Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(20.dp))
+                        },
                         trailingIcon = {
                             IconButton(onClick = {
                                 onSearchQueryChange("")
@@ -487,10 +553,7 @@ private fun CloudSubHeader(
                                 Icon(Icons.Default.Close, contentDescription = "Close search")
                             }
                         },
-                        singleLine = true,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .testTag("cloud_search_input")
+                        modifier = Modifier.fillMaxWidth()
                     )
                 }
             } else {
@@ -583,11 +646,47 @@ private fun CloudSubHeader(
                         }
 
                         IconButton(
+                            onClick = onNavigateToConnectedServices,
+                            modifier = Modifier.size(36.dp).testTag("connected_services_header_button")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.CloudQueue,
+                                contentDescription = "Connected Services",
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+
+                        IconButton(
                             onClick = onRefresh,
                             modifier = Modifier.size(36.dp)
                         ) {
                             Icon(Icons.Default.Refresh, contentDescription = "Refresh", modifier = Modifier.size(20.dp))
                         }
+                    }
+                }
+            }
+
+            // Multi-Cloud Provider Filter Chips Row
+            if (uiState.connectedProviders.size > 1) {
+                LazyRow(
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 2.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    item {
+                        FilterChip(
+                            selected = uiState.providerFilter == "all",
+                            onClick = { onProviderFilterChange("all") },
+                            label = { Text("All (${uiState.items.size})", fontSize = 12.sp) }
+                        )
+                    }
+                    items(uiState.connectedProviders, key = { it.providerId }) { prov ->
+                        FilterChip(
+                            selected = uiState.providerFilter == prov.providerId,
+                            onClick = { onProviderFilterChange(prov.providerId) },
+                            label = { Text(prov.displayName, fontSize = 12.sp) }
+                        )
                     }
                 }
             }
@@ -628,14 +727,16 @@ private fun FolderChipsRow(
     currentPrefix: String,
     onFolderClick: (String) -> Unit
 ) {
-    LazyRow(
-        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceContainerLowest,
         modifier = Modifier.fillMaxWidth()
     ) {
-        items(folders) { folderKey ->
-            val folderName = folderKey.removePrefix(currentPrefix).trimEnd('/')
-            if (folderName.isNotEmpty()) {
+        LazyRow(
+            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            items(folders) { folderKey ->
+                val folderName = folderKey.removePrefix(currentPrefix).trimEnd('/')
                 ElevatedAssistChip(
                     onClick = { onFolderClick(folderKey) },
                     label = { Text(folderName, maxLines = 1) },
@@ -683,7 +784,7 @@ private fun CloudNotConnectedState(onConnectClick: () -> Unit) {
             Spacer(modifier = Modifier.height(20.dp))
 
             Text(
-                text = "Cloud storage isn't connected",
+                text = "No Cloud Storage Connected",
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
                 textAlign = TextAlign.Center
@@ -692,7 +793,7 @@ private fun CloudNotConnectedState(onConnectClick: () -> Unit) {
             Spacer(modifier = Modifier.height(8.dp))
 
             Text(
-                text = "Connect your Cloudflare R2 bucket to view and manage your uploaded photos and videos directly in CloudGallery.",
+                text = "Connect Cloudflare R2, Google Photos, Microsoft OneDrive, or Dropbox to browse and back up your photos and videos safely.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center,
@@ -703,11 +804,11 @@ private fun CloudNotConnectedState(onConnectClick: () -> Unit) {
 
             Button(
                 onClick = onConnectClick,
-                modifier = Modifier.testTag("connect_cloudflare_r2_button")
+                modifier = Modifier.testTag("connect_cloud_storage_button")
             ) {
                 Icon(imageVector = Icons.Default.Cloud, contentDescription = null)
                 Spacer(modifier = Modifier.width(8.dp))
-                Text("Connect Cloudflare R2")
+                Text("Connect Cloud Storage")
             }
         }
     }
@@ -752,7 +853,7 @@ private fun CloudEmptyBucketState(
                 } else if (currentPrefix.isNotEmpty()) {
                     "This folder is empty."
                 } else {
-                    "This bucket is empty."
+                    "No cloud files found."
                 },
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
@@ -765,7 +866,7 @@ private fun CloudEmptyBucketState(
                 text = if (searchQuery.isNotEmpty()) {
                     "Try checking your spelling or clearing the search query."
                 } else {
-                    "Files you save or backup to Cloudflare R2 will appear here."
+                    "Files backed up or stored in your connected cloud services will appear here."
                 },
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -777,7 +878,7 @@ private fun CloudEmptyBucketState(
             TextButton(onClick = onRefresh) {
                 Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
                 Spacer(modifier = Modifier.width(6.dp))
-                Text("Refresh Bucket")
+                Text("Refresh Cloud Media")
             }
         }
     }

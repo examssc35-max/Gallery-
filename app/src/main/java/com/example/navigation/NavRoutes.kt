@@ -18,4 +18,5 @@ sealed class NavRoute(val route: String) {
         fun createRoute(collectionId: String) = "smart_collection/$collectionId"
     }
     data object SmartCollectionsSettings : NavRoute("smart_collections_settings")
+    data object ConnectedServices : NavRoute("connected_services")
 }

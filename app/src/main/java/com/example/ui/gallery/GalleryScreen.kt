@@ -125,6 +125,7 @@ fun GalleryScreen(
     onNavigateToTrash: () -> Unit,
     onNavigateToCloudStorageUsage: () -> Unit = {},
     onNavigateToAiAssistant: () -> Unit = {},
+    onNavigateToConnectedServices: () -> Unit = {},
     smartCollectionsViewModel: com.example.ui.smartcollections.SmartCollectionsViewModel? = null,
     onNavigateToSmartCollections: () -> Unit = {},
     onCollectionClick: (com.example.domain.model.SmartCollection) -> Unit = {},
@@ -508,6 +509,14 @@ fun GalleryScreen(
                                         }
                                     )
                                     DropdownMenuItem(
+                                        leadingIcon = { Icon(Icons.Default.Cloud, contentDescription = null) },
+                                        text = { Text("Connected Services") },
+                                        onClick = {
+                                            showOverflowMenu = false
+                                            onNavigateToConnectedServices()
+                                        }
+                                    )
+                                    DropdownMenuItem(
                                         leadingIcon = { Icon(Icons.Default.PieChart, contentDescription = null) },
                                         text = { Text("Cloud Storage Usage") },
                                         onClick = {
@@ -640,6 +649,7 @@ fun GalleryScreen(
                                 onOpenViewer = onOpenViewer,
                                 onConnectR2 = onNavigateToSettings,
                                 onNavigateToStorageUsage = onNavigateToCloudStorageUsage,
+                                onNavigateToConnectedServices = onNavigateToConnectedServices,
                                 modifier = Modifier.fillMaxSize()
                             )
                         }

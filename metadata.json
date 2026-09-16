@@ -1,6 +1,6 @@
 {
   "name": "CloudGallery",
-  "description": "Personal local gallery and file manager with optional Cloudflare R2 backup and storage integration",
+  "description": "Personal local gallery and file manager with multi-cloud support for Cloudflare R2, Google Photos, Microsoft OneDrive, and Dropbox",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

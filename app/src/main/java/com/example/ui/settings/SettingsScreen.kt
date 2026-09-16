@@ -85,6 +85,7 @@ fun SettingsScreen(
     storageUsageViewModel: StorageUsageViewModel? = null,
     onNavigateToStorageUsage: () -> Unit = {},
     onNavigateToSmartCollectionsSettings: () -> Unit = {},
+    onNavigateToConnectedServices: () -> Unit = {},
     onBack: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
@@ -147,6 +148,55 @@ fun SettingsScreen(
             verticalArrangement = Arrangement.spacedBy(16.dp),
             modifier = Modifier.fillMaxSize()
         ) {
+            // Multi-Cloud Connected Services Card
+            item {
+                Card(
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f)
+                    ),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Cloud,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(28.dp)
+                            )
+                            Column {
+                                Text(
+                                    text = "Connected Services",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    text = "Connect Cloudflare R2, Google Photos, OneDrive, and Dropbox",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+
+                        Button(
+                            onClick = onNavigateToConnectedServices,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("manage_connected_services_button")
+                        ) {
+                            Text("Manage Connected Services")
+                        }
+                    }
+                }
+            }
+
             // 1. Cloudflare R2 Credentials Card
             item {
                 Text(

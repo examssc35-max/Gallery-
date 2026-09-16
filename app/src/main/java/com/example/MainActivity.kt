@@ -70,7 +70,24 @@ class MainActivity : ComponentActivity() {
         val galleryViewModel = GalleryViewModel(mediaRepository, backupRepository, preferencesManager)
         val backupViewModel = BackupViewModel(backupRepository, r2Repository)
         val cloudViewModel = CloudBrowserViewModel(r2Repository)
-        val cloudTabViewModel = CloudTabViewModel(r2Repository, backupRepository, preferencesManager)
+
+        val secureTokenStorage = com.example.security.SecureCloudTokenStorage(applicationContext)
+        val multiCloudRepository = com.example.data.repository.MultiCloudRepositoryImpl(
+            r2Repository = r2Repository,
+            tokenStorage = secureTokenStorage
+        )
+        val connectedServicesViewModel = com.example.ui.settings.ConnectedServicesViewModel(
+            multiCloudRepository = multiCloudRepository,
+            r2Repository = r2Repository,
+            preferencesManager = preferencesManager
+        )
+
+        val cloudTabViewModel = CloudTabViewModel(
+            r2Repository = r2Repository,
+            backupRepository = backupRepository,
+            preferencesManager = preferencesManager,
+            multiCloudRepository = multiCloudRepository
+        )
         val getStorageUsageUseCase = GetStorageUsageUseCase(r2Repository)
         val storageUsageViewModel = StorageUsageViewModel(getStorageUsageUseCase, r2Repository)
 
@@ -157,6 +174,7 @@ class MainActivity : ComponentActivity() {
                                 onNavigateToStorage = { navController.navigate(NavRoute.Storage.route) },
                                 onNavigateToTrash = { navController.navigate(NavRoute.Trash.route) },
                                 onNavigateToCloudStorageUsage = { navController.navigate(NavRoute.CloudStorageUsage.route) },
+                                onNavigateToConnectedServices = { navController.navigate(NavRoute.ConnectedServices.route) },
                                 onNavigateToAiAssistant = { navController.navigate(NavRoute.AiAssistant.route) }
                             )
                         }
@@ -210,6 +228,14 @@ class MainActivity : ComponentActivity() {
                                 storageUsageViewModel = storageUsageViewModel,
                                 onNavigateToStorageUsage = { navController.navigate(NavRoute.CloudStorageUsage.route) },
                                 onNavigateToSmartCollectionsSettings = { navController.navigate(NavRoute.SmartCollectionsSettings.route) },
+                                onNavigateToConnectedServices = { navController.navigate(NavRoute.ConnectedServices.route) },
+                                onBack = { navController.popBackStack() }
+                            )
+                        }
+
+                        composable(NavRoute.ConnectedServices.route) {
+                            com.example.ui.settings.ConnectedServicesScreen(
+                                viewModel = connectedServicesViewModel,
                                 onBack = { navController.popBackStack() }
                             )
                         }
@@ -311,6 +337,7 @@ class MainActivity : ComponentActivity() {
                                         "trash" -> navController.navigate(NavRoute.Trash.route)
                                         "smart_collections" -> navController.navigate(NavRoute.SmartCollections.route)
                                         "smart_collections_settings" -> navController.navigate(NavRoute.SmartCollectionsSettings.route)
+                                        "connected_services" -> navController.navigate(NavRoute.ConnectedServices.route)
                                         else -> {
                                             try {
                                                 navController.navigate(route)
