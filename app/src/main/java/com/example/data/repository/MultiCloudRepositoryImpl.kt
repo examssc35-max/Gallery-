@@ -2,6 +2,7 @@ package com.example.data.repository
 
 import com.example.data.multicloud.CloudflareR2Provider
 import com.example.data.multicloud.DropboxProvider
+import com.example.data.multicloud.GoogleDriveProvider
 import com.example.data.multicloud.GooglePhotosProvider
 import com.example.data.multicloud.OneDriveProvider
 import com.example.domain.model.multicloud.CloudMediaItem
@@ -29,12 +30,14 @@ class MultiCloudRepositoryImpl(
 
     private val r2Provider = CloudflareR2Provider(r2Repository)
     private val googlePhotosProvider = GooglePhotosProvider(tokenStorage)
+    private val googleDriveProvider = GoogleDriveProvider(tokenStorage)
     private val oneDriveProvider = OneDriveProvider(tokenStorage)
     private val dropboxProvider = DropboxProvider(tokenStorage)
 
     private val providersList = listOf<CloudProvider>(
         r2Provider,
         googlePhotosProvider,
+        googleDriveProvider,
         oneDriveProvider,
         dropboxProvider
     )

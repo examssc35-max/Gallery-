@@ -7,6 +7,7 @@ enum class CloudProviderType(
 ) {
     R2("r2", "Cloudflare R2", "Cloudflare R2 Storage"),
     GOOGLE_PHOTOS("google_photos", "Google Photos", "Google Photos"),
+    GOOGLE_DRIVE("google_drive", "Google Drive", "Google Drive Storage"),
     ONEDRIVE("onedrive", "Microsoft OneDrive", "Microsoft OneDrive"),
     DROPBOX("dropbox", "Dropbox", "Dropbox Storage");
 

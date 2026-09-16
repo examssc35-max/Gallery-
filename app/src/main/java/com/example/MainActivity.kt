@@ -49,6 +49,21 @@ import com.example.ui.viewer.MediaViewerStateHolder
 
 class MainActivity : ComponentActivity() {
 
+    private var connectedServicesVm: com.example.ui.settings.ConnectedServicesViewModel? = null
+
+    override fun onNewIntent(intent: android.content.Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleOAuthDeepLink(intent)
+    }
+
+    private fun handleOAuthDeepLink(intent: android.content.Intent?) {
+        val uri = intent?.data ?: return
+        if (uri.scheme == "cloudgallery" && uri.host == "oauth") {
+            connectedServicesVm?.handleAuthCallback(uri)
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
@@ -79,8 +94,11 @@ class MainActivity : ComponentActivity() {
         val connectedServicesViewModel = com.example.ui.settings.ConnectedServicesViewModel(
             multiCloudRepository = multiCloudRepository,
             r2Repository = r2Repository,
-            preferencesManager = preferencesManager
+            preferencesManager = preferencesManager,
+            tokenStorage = secureTokenStorage
         )
+        connectedServicesVm = connectedServicesViewModel
+        handleOAuthDeepLink(intent)
 
         val cloudTabViewModel = CloudTabViewModel(
             r2Repository = r2Repository,

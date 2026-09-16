@@ -1,16 +1,21 @@
 package com.example.ui.settings
 
 import android.content.Context
+import android.content.Intent
+import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.auth.CloudflareR2CredentialProvider
+import com.example.auth.DropboxAuthProvider
+import com.example.auth.GoogleDriveAuthProvider
+import com.example.auth.GooglePhotosAuthProvider
+import com.example.auth.MicrosoftOneDriveAuthProvider
 import com.example.data.local.PreferencesManager
-import com.example.domain.model.multicloud.CloudCapabilities
 import com.example.domain.model.multicloud.CloudConnectionState
-import com.example.domain.model.multicloud.CloudStorageQuota
 import com.example.domain.model.multicloud.ProviderConnectionInfo
 import com.example.domain.repository.MultiCloudRepository
 import com.example.domain.repository.R2Repository
-import com.example.security.OAuthManager
+import com.example.security.SecureCloudTokenStorage
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -22,6 +27,8 @@ data class ConnectedServicesUiState(
     val selectedProviderForConfig: String? = null,
     val selectedProviderForCapabilities: ProviderConnectionInfo? = null,
     val providerToDisconnect: ProviderConnectionInfo? = null,
+    val isAuthenticating: Boolean = false,
+    val authenticatingProviderName: String? = null,
     val message: String? = null,
     val errorMessage: String? = null
 )
@@ -30,7 +37,12 @@ class ConnectedServicesViewModel(
     private val multiCloudRepository: MultiCloudRepository,
     private val r2Repository: R2Repository,
     private val preferencesManager: PreferencesManager,
-    private val oAuthManager: OAuthManager = OAuthManager()
+    private val tokenStorage: SecureCloudTokenStorage,
+    val googlePhotosAuthProvider: GooglePhotosAuthProvider = GooglePhotosAuthProvider(tokenStorage),
+    val googleDriveAuthProvider: GoogleDriveAuthProvider = GoogleDriveAuthProvider(tokenStorage),
+    val microsoftOneDriveAuthProvider: MicrosoftOneDriveAuthProvider = MicrosoftOneDriveAuthProvider(tokenStorage),
+    val dropboxAuthProvider: DropboxAuthProvider = DropboxAuthProvider(tokenStorage),
+    val cloudflareR2CredentialProvider: CloudflareR2CredentialProvider = CloudflareR2CredentialProvider(r2Repository)
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(ConnectedServicesUiState())
@@ -89,16 +101,177 @@ class ConnectedServicesViewModel(
     fun confirmDisconnect(info: ProviderConnectionInfo) {
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(providerToDisconnect = null, isLoading = true)
-            val result = multiCloudRepository.disconnectProvider(info.providerId)
-            if (result.isSuccess) {
+            val disconnectResult = when (info.providerId) {
+                "r2" -> cloudflareR2CredentialProvider.disconnect()
+                "google_photos" -> googlePhotosAuthProvider.disconnect()
+                "google_drive" -> googleDriveAuthProvider.disconnect()
+                "onedrive" -> microsoftOneDriveAuthProvider.disconnect()
+                "dropbox" -> dropboxAuthProvider.disconnect()
+                else -> multiCloudRepository.disconnectProvider(info.providerId)
+            }
+
+            if (disconnectResult.isSuccess) {
                 _uiState.value = _uiState.value.copy(
-                    message = "${info.displayName} disconnected.",
+                    message = "${info.displayName} disconnected. Cloud files were not deleted.",
                     isLoading = false
                 )
                 loadProviders()
             } else {
                 _uiState.value = _uiState.value.copy(
-                    errorMessage = "Failed to disconnect: ${result.exceptionOrNull()?.message}",
+                    errorMessage = "Failed to disconnect: ${disconnectResult.exceptionOrNull()?.message}",
+                    isLoading = false
+                )
+            }
+        }
+    }
+
+    /**
+     * Launches the official provider sign-in flow via the device browser.
+     */
+    fun startOfficialAuth(context: Context, providerId: String, customClientId: String? = null) {
+        val authUrl = when (providerId) {
+            "google_photos" -> googlePhotosAuthProvider.buildAuthorizationUrl(customClientId)
+            "google_drive" -> googleDriveAuthProvider.buildAuthorizationUrl(customClientId)
+            "onedrive" -> microsoftOneDriveAuthProvider.buildAuthorizationUrl(customClientId)
+            "dropbox" -> dropboxAuthProvider.buildAuthorizationUrl(customClientId)
+            else -> null
+        }
+
+        if (authUrl == null) {
+            _uiState.value = _uiState.value.copy(errorMessage = "Unknown provider: $providerId")
+            return
+        }
+
+        val providerName = multiCloudRepository.getProvider(providerId)?.displayName ?: providerId
+        _uiState.value = _uiState.value.copy(
+            isAuthenticating = true,
+            authenticatingProviderName = providerName
+        )
+
+        try {
+            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(authUrl)).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            }
+            context.startActivity(intent)
+        } catch (e: Exception) {
+            _uiState.value = _uiState.value.copy(
+                isAuthenticating = false,
+                authenticatingProviderName = null,
+                errorMessage = "Failed to launch browser: ${e.localizedMessage}"
+            )
+        }
+    }
+
+    /**
+     * Handles the OAuth callback redirect (cloudgallery://oauth/<provider>?code=...).
+     */
+    fun handleAuthCallback(uri: Uri) {
+        viewModelScope.launch {
+            val error = uri.getQueryParameter("error")
+            val errorDescription = uri.getQueryParameter("error_description")
+            if (error != null) {
+                val msg = if (error == "access_denied") {
+                    "Sign in was cancelled or denied."
+                } else {
+                    errorDescription ?: "Authentication failed: $error"
+                }
+                _uiState.value = _uiState.value.copy(
+                    isAuthenticating = false,
+                    authenticatingProviderName = null,
+                    errorMessage = msg
+                )
+                return@launch
+            }
+
+            val code = uri.getQueryParameter("code")
+            if (code.isNullOrBlank()) {
+                _uiState.value = _uiState.value.copy(
+                    isAuthenticating = false,
+                    authenticatingProviderName = null,
+                    errorMessage = "No authorization code received in callback."
+                )
+                return@launch
+            }
+
+            // Determine provider from host or path
+            // e.g. cloudgallery://oauth/google-photos or cloudgallery://oauth/google-drive
+            val path = uri.path?.trim('/') ?: ""
+            val host = uri.host ?: ""
+            val target = if (path.isNotEmpty()) path else host
+
+            _uiState.value = _uiState.value.copy(isLoading = true)
+
+            val result = when {
+                target.contains("google-photos", ignoreCase = true) -> {
+                    googlePhotosAuthProvider.handleCallback(code)
+                }
+                target.contains("google-drive", ignoreCase = true) -> {
+                    googleDriveAuthProvider.handleCallback(code)
+                }
+                target.contains("onedrive", ignoreCase = true) -> {
+                    microsoftOneDriveAuthProvider.handleCallback(code)
+                }
+                target.contains("dropbox", ignoreCase = true) -> {
+                    dropboxAuthProvider.handleCallback(code)
+                }
+                else -> {
+                    // Try to deduce based on current authenticatingProviderName
+                    when (_uiState.value.authenticatingProviderName) {
+                        "Google Photos" -> googlePhotosAuthProvider.handleCallback(code)
+                        "Google Drive" -> googleDriveAuthProvider.handleCallback(code)
+                        "Microsoft OneDrive" -> microsoftOneDriveAuthProvider.handleCallback(code)
+                        "Dropbox" -> dropboxAuthProvider.handleCallback(code)
+                        else -> Result.failure(IllegalArgumentException("Unrecognized OAuth callback destination: $target"))
+                    }
+                }
+            }
+
+            if (result.isSuccess) {
+                val conn = result.getOrThrow()
+                _uiState.value = _uiState.value.copy(
+                    isAuthenticating = false,
+                    authenticatingProviderName = null,
+                    selectedProviderForConfig = null,
+                    message = "Connected to ${conn.serviceInfo ?: "Service"} as ${conn.accountName ?: "User"}!",
+                    isLoading = false
+                )
+                loadProviders()
+            } else {
+                _uiState.value = _uiState.value.copy(
+                    isAuthenticating = false,
+                    authenticatingProviderName = null,
+                    errorMessage = result.exceptionOrNull()?.message ?: "Authentication failed",
+                    isLoading = false
+                )
+            }
+        }
+    }
+
+    /**
+     * Fallback for manual authorization code exchange if user copies code from browser.
+     */
+    fun exchangeManualCode(providerId: String, code: String, customClientId: String? = null) {
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(isLoading = true, errorMessage = null)
+            val result = when (providerId) {
+                "google_photos" -> googlePhotosAuthProvider.handleCallback(code, customClientId)
+                "google_drive" -> googleDriveAuthProvider.handleCallback(code, customClientId)
+                "onedrive" -> microsoftOneDriveAuthProvider.handleCallback(code, customClientId)
+                "dropbox" -> dropboxAuthProvider.handleCallback(code, customClientId)
+                else -> Result.failure(IllegalArgumentException("Unsupported OAuth provider: $providerId"))
+            }
+
+            if (result.isSuccess) {
+                val conn = result.getOrThrow()
+                _uiState.value = _uiState.value.copy(
+                    selectedProviderForConfig = null,
+                    message = "Connected to ${conn.serviceInfo ?: providerId} successfully!",
+                    isLoading = false
+                )
+                loadProviders()
+            } else {
+                _uiState.value = _uiState.value.copy(
+                    errorMessage = result.exceptionOrNull()?.message ?: "Authorization failed",
                     isLoading = false
                 )
             }
@@ -114,18 +287,17 @@ class ConnectedServicesViewModel(
     ) {
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isLoading = true, errorMessage = null)
-            val params = mapOf(
-                "accountId" to accountId.trim(),
-                "accessKeyId" to accessKeyId.trim(),
-                "secretAccessKey" to secretAccessKey.trim(),
-                "bucketName" to bucketName.trim(),
-                "endpoint" to endpoint.trim()
+            val result = cloudflareR2CredentialProvider.saveAndVerify(
+                accountId = accountId,
+                accessKeyId = accessKeyId,
+                secretAccessKey = secretAccessKey,
+                bucketName = bucketName,
+                endpoint = endpoint
             )
-            val result = multiCloudRepository.connectProvider("r2", params)
             if (result.isSuccess) {
                 _uiState.value = _uiState.value.copy(
                     selectedProviderForConfig = null,
-                    message = "Connected to Cloudflare R2 successfully!",
+                    message = "Connected to Cloudflare R2 bucket '$bucketName'!",
                     isLoading = false
                 )
                 loadProviders()
@@ -137,92 +309,6 @@ class ConnectedServicesViewModel(
             }
         }
     }
-
-    fun connectOAuthProvider(
-        providerId: String,
-        accessToken: String,
-        refreshToken: String? = null,
-        clientId: String? = null,
-        email: String? = null,
-        name: String? = null
-    ) {
-        viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(isLoading = true, errorMessage = null)
-            val params = mutableMapOf(
-                "accessToken" to accessToken.trim()
-            )
-            if (!refreshToken.isNullOrBlank()) params["refreshToken"] = refreshToken.trim()
-            if (!clientId.isNullOrBlank()) params["clientId"] = clientId.trim()
-            if (!email.isNullOrBlank()) params["email"] = email.trim()
-            if (!name.isNullOrBlank()) params["name"] = name.trim()
-
-            val result = multiCloudRepository.connectProvider(providerId, params)
-            if (result.isSuccess) {
-                val providerName = multiCloudRepository.getProvider(providerId)?.displayName ?: providerId
-                _uiState.value = _uiState.value.copy(
-                    selectedProviderForConfig = null,
-                    message = "Connected to $providerName successfully!",
-                    isLoading = false
-                )
-                loadProviders()
-            } else {
-                _uiState.value = _uiState.value.copy(
-                    errorMessage = result.exceptionOrNull()?.message ?: "Authentication failed",
-                    isLoading = false
-                )
-            }
-        }
-    }
-
-    fun exchangeOAuthCode(
-        providerId: String,
-        code: String,
-        clientId: String,
-        codeVerifier: String,
-        clientSecret: String? = null
-    ) {
-        viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(isLoading = true, errorMessage = null)
-            val tokenRes = oAuthManager.exchangeCodeForToken(
-                providerId = providerId,
-                clientId = clientId.trim(),
-                clientSecret = clientSecret?.trim(),
-                code = code.trim(),
-                codeVerifier = codeVerifier
-            )
-
-            if (tokenRes.isSuccess) {
-                val resp = tokenRes.getOrThrow()
-                connectOAuthProvider(
-                    providerId = providerId,
-                    accessToken = resp.accessToken,
-                    refreshToken = resp.refreshToken,
-                    clientId = clientId.trim()
-                )
-            } else {
-                _uiState.value = _uiState.value.copy(
-                    errorMessage = tokenRes.exceptionOrNull()?.message ?: "Token exchange failed",
-                    isLoading = false
-                )
-            }
-        }
-    }
-
-    fun buildAuthUrl(
-        providerId: String,
-        clientId: String,
-        codeChallenge: String
-    ): String {
-        return oAuthManager.buildAuthorizationUrl(
-            providerId = providerId,
-            clientId = clientId.trim(),
-            codeChallenge = codeChallenge,
-            state = "state_$providerId"
-        )
-    }
-
-    fun generateCodeVerifier(): String = oAuthManager.generateCodeVerifier()
-    fun generateCodeChallenge(verifier: String): String = oAuthManager.generateCodeChallenge(verifier)
 
     fun clearMessage() {
         _uiState.value = _uiState.value.copy(message = null, errorMessage = null)
