@@ -127,6 +127,17 @@ class SecureCloudTokenStorage(
         }
     }
 
+    suspend fun getClientId(providerId: String): String? {
+        val prefs = context.multiCloudDataStore.data.first()
+        return prefs[keyClientId(providerId)]?.takeIf { it.isNotBlank() }
+    }
+
+    suspend fun saveClientId(providerId: String, clientId: String) {
+        context.multiCloudDataStore.edit { prefs ->
+            prefs[keyClientId(providerId)] = clientId.trim()
+        }
+    }
+
     suspend fun clearTokens(providerId: String) {
         context.multiCloudDataStore.edit { prefs ->
             prefs.remove(keyEncryptedAccess(providerId))

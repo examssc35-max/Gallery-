@@ -23,15 +23,14 @@ class GoogleDriveAuthProvider(
         const val AUTH_ENDPOINT = "https://accounts.google.com/o/oauth2/v2/auth"
         const val TOKEN_ENDPOINT = "https://oauth2.googleapis.com/token"
         const val SCOPE = "https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/userinfo.email"
-
-        const val DEFAULT_CLIENT_ID = "1049281948201-cloudgallery.apps.googleusercontent.com"
     }
 
     private var pendingVerifier: String? = null
     private var pendingClientId: String? = null
 
-    fun buildAuthorizationUrl(customClientId: String? = null): String {
-        val clientId = customClientId?.trim()?.takeIf { it.isNotEmpty() } ?: DEFAULT_CLIENT_ID
+    fun buildAuthorizationUrl(customClientId: String?): String {
+        val clientId = customClientId?.trim()?.takeIf { it.isNotEmpty() }
+            ?: throw IllegalArgumentException("A valid Google Cloud OAuth Client ID is required to authorize with Google.")
         val verifier = oAuthManager.generateCodeVerifier()
         val challenge = oAuthManager.generateCodeChallenge(verifier)
         pendingVerifier = verifier
@@ -46,6 +45,7 @@ class GoogleDriveAuthProvider(
             .appendQueryParameter("code_challenge_method", "S256")
             .appendQueryParameter("access_type", "offline")
             .appendQueryParameter("prompt", "consent")
+            .appendQueryParameter("include_granted_scopes", "true")
             .appendQueryParameter("state", "state_$PROVIDER_ID")
             .build()
             .toString()
@@ -59,7 +59,8 @@ class GoogleDriveAuthProvider(
         try {
             val finalClientId = customClientId?.trim()?.takeIf { it.isNotEmpty() }
                 ?: pendingClientId
-                ?: DEFAULT_CLIENT_ID
+                ?: tokenStorage.getClientId(PROVIDER_ID)
+                ?: return@withContext Result.failure(IllegalStateException("No Google OAuth Client ID found for authorization."))
             val finalVerifier = verifier ?: pendingVerifier
                 ?: return@withContext Result.failure(IllegalStateException("No PKCE code verifier found for session"))
 

@@ -2,6 +2,7 @@ package com.example.data.multicloud
 
 import com.example.domain.model.multicloud.CloudCapabilities
 import com.example.domain.model.multicloud.CloudConnectionState
+import com.example.domain.model.multicloud.CloudFileType
 import com.example.domain.model.multicloud.CloudMediaItem
 import com.example.domain.model.multicloud.CloudSearchRequest
 import com.example.domain.model.multicloud.CloudStorageQuota
@@ -181,8 +182,25 @@ class OneDriveProvider(
 
                 for (i in 0 until valueArray.length()) {
                     val obj = valueArray.getJSONObject(i)
+                    val folderName = obj.optString("name")
+                    val objId = obj.optString("id")
                     if (obj.has("folder")) {
-                        folders.add(obj.optString("name"))
+                        folders.add(folderName)
+                        items.add(
+                            CloudMediaItem(
+                                providerId = providerId,
+                                providerName = displayName,
+                                remoteId = objId,
+                                name = folderName,
+                                mimeType = "application/vnd.microsoft.folder",
+                                size = 0L,
+                                isFolder = true,
+                                folderPath = "/$folderName",
+                                parentId = folderId,
+                                capabilities = capabilities,
+                                fileType = CloudFileType.OTHER
+                            )
+                        )
                     } else {
                         parseDriveItem(obj)?.let { items.add(it) }
                     }

@@ -254,7 +254,11 @@ class MainActivity : ComponentActivity() {
                         composable(NavRoute.ConnectedServices.route) {
                             com.example.ui.settings.ConnectedServicesScreen(
                                 viewModel = connectedServicesViewModel,
-                                onBack = { navController.popBackStack() }
+                                onBack = { navController.popBackStack() },
+                                onBrowseProvider = { providerId ->
+                                    cloudTabViewModel.setProviderFilter(providerId)
+                                    navController.popBackStack()
+                                }
                             )
                         }
 

@@ -9,7 +9,7 @@ data class CloudMediaItem(
     val providerName: String,
     val remoteId: String,
     val name: String,
-    val mimeType: String = "image/*",
+    val mimeType: String = "application/octet-stream",
     val size: Long = 0L,
     val createdAt: Long = 0L,
     val modifiedAt: Long = 0L,
@@ -21,19 +21,26 @@ data class CloudMediaItem(
     val height: Int = 0,
     val isFolder: Boolean = false,
     val folderPath: String? = null,
-    val capabilities: CloudCapabilities = CloudCapabilities()
+    val parentId: String? = null,
+    val capabilities: CloudCapabilities = CloudCapabilities(),
+    val fileType: CloudFileType = CloudFileTypeResolver.resolve(mimeType, name)
 ) {
+    val modifiedTime: Long get() = modifiedAt
+    val thumbnailUri: String? get() = thumbnailUrl
+    val downloadUri: String? get() = downloadUrl
+    val isMedia: Boolean get() = fileType == CloudFileType.IMAGE || fileType == CloudFileType.VIDEO
+
     fun toMediaItem(): MediaItem = MediaItem(
         id = ((providerId.hashCode().toLong() and 0xFFFF_FFFFL) * 31L + (remoteId.hashCode().toLong() and 0xFFFF_FFFFL))
             .let { if (it == 0L) 1L else it },
         uriString = downloadUrl ?: thumbnailUrl ?: "",
         name = name,
-        path = folderPath ?: "",
+        path = folderPath ?: name,
         size = size,
-        dateAdded = createdAt,
-        dateModified = modifiedAt,
+        dateAdded = if (createdAt > 0) createdAt / 1000 else System.currentTimeMillis() / 1000,
+        dateModified = if (modifiedAt > 0) modifiedAt else System.currentTimeMillis(),
         mimeType = mimeType,
-        isVideo = isVideo,
+        isVideo = isVideo || fileType == CloudFileType.VIDEO,
         durationMs = durationMs,
         width = width,
         height = height,
@@ -43,6 +50,9 @@ data class CloudMediaItem(
         backupStatus = BackupStatus.COMPLETED
     )
 }
+
+typealias CloudFile = CloudMediaItem
+
 
 data class MultiCloudMediaPage(
     val items: List<CloudMediaItem>,

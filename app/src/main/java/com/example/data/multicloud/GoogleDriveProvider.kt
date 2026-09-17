@@ -2,6 +2,7 @@ package com.example.data.multicloud
 
 import com.example.domain.model.multicloud.CloudCapabilities
 import com.example.domain.model.multicloud.CloudConnectionState
+import com.example.domain.model.multicloud.CloudFileType
 import com.example.domain.model.multicloud.CloudMediaItem
 import com.example.domain.model.multicloud.CloudSearchRequest
 import com.example.domain.model.multicloud.CloudStorageQuota
@@ -154,13 +155,18 @@ class GoogleDriveProvider(
             val token = getValidAccessToken()
                 ?: return@withContext Result.failure(IllegalStateException("Google Drive is not authenticated"))
 
-            val query = "(mimeType contains 'image/' or mimeType contains 'video/') and trashed = false"
+            val parentFilter = if (folderId.isNullOrEmpty() || folderId == "root") {
+                "'root' in parents and trashed = false"
+            } else {
+                "'$folderId' in parents and trashed = false"
+            }
             val urlBuilder = okhttp3.HttpUrl.Builder()
                 .scheme("https")
                 .host("www.googleapis.com")
                 .addPathSegments("drive/v3/files")
-                .addQueryParameter("q", query)
+                .addQueryParameter("q", parentFilter)
                 .addQueryParameter("pageSize", pageSize.toString())
+                .addQueryParameter("orderBy", "folder,modifiedTime desc")
                 .addQueryParameter("fields", "nextPageToken,files(id,name,mimeType,size,modifiedTime,thumbnailLink,webContentLink)")
 
             if (!continuationToken.isNullOrEmpty()) {
@@ -183,6 +189,7 @@ class GoogleDriveProvider(
                 val nextToken = json.optString("nextPageToken").takeIf { it.isNotEmpty() }
 
                 val items = mutableListOf<CloudMediaItem>()
+                val folders = mutableListOf<String>()
                 val dateFormat = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US).apply {
                     timeZone = TimeZone.getTimeZone("UTC")
                 }
@@ -191,7 +198,8 @@ class GoogleDriveProvider(
                     val fileObj = files.getJSONObject(i)
                     val id = fileObj.getString("id")
                     val name = fileObj.getString("name")
-                    val mime = fileObj.optString("mimeType", "image/jpeg")
+                    val mime = fileObj.optString("mimeType", "application/octet-stream")
+                    val isFolder = mime == "application/vnd.google-apps.folder"
                     val size = fileObj.optLong("size", 0L)
                     val modTimeStr = fileObj.optString("modifiedTime")
                     val modTime = try {
@@ -199,7 +207,15 @@ class GoogleDriveProvider(
                     } catch (_: Exception) {
                         System.currentTimeMillis()
                     }
-                    val thumb = fileObj.optString("thumbnailLink").takeIf { it.isNotEmpty() }
+                    val fileType = if (isFolder) CloudFileType.OTHER else com.example.domain.model.multicloud.CloudFileTypeResolver.resolve(mime, name)
+                    val isVideo = fileType == com.example.domain.model.multicloud.CloudFileType.VIDEO
+                    val thumb = if (fileType == com.example.domain.model.multicloud.CloudFileType.IMAGE || isVideo) {
+                        fileObj.optString("thumbnailLink").takeIf { it.isNotEmpty() }
+                    } else null
+
+                    if (isFolder) {
+                        folders.add(name)
+                    }
 
                     items.add(
                         CloudMediaItem(
@@ -212,10 +228,13 @@ class GoogleDriveProvider(
                             createdAt = modTime,
                             modifiedAt = modTime,
                             thumbnailUrl = thumb,
-                            downloadUrl = "https://www.googleapis.com/drive/v3/files/$id?alt=media",
-                            isVideo = mime.startsWith("video/"),
+                            downloadUrl = if (isFolder) null else "https://www.googleapis.com/drive/v3/files/$id?alt=media",
+                            isVideo = isVideo,
+                            isFolder = isFolder,
                             folderPath = "/$name",
-                            capabilities = capabilities
+                            parentId = folderId,
+                            capabilities = capabilities,
+                            fileType = fileType
                         )
                     )
                 }
@@ -223,7 +242,7 @@ class GoogleDriveProvider(
                 Result.success(
                     MultiCloudMediaPage(
                         items = items,
-                        folders = emptyList(),
+                        folders = folders,
                         nextContinuationToken = nextToken,
                         isTruncated = nextToken != null
                     )
@@ -240,7 +259,14 @@ class GoogleDriveProvider(
                 ?: return@withContext Result.failure(IllegalStateException("Google Drive is not authenticated"))
 
             val escapedQuery = request.query?.replace("'", "\\'") ?: ""
-            val query = "name contains '$escapedQuery' and (mimeType contains 'image/' or mimeType contains 'video/') and trashed = false"
+            val typeFilter = when (request.mediaType?.lowercase()) {
+                "photo", "photos", "image", "images" -> " and mimeType contains 'image/'"
+                "video", "videos" -> " and mimeType contains 'video/'"
+                "audio" -> " and mimeType contains 'audio/'"
+                "document", "documents" -> " and (mimeType contains 'pdf' or mimeType contains 'document' or mimeType contains 'text')"
+                else -> ""
+            }
+            val query = "name contains '$escapedQuery' and trashed = false$typeFilter"
             val urlBuilder = okhttp3.HttpUrl.Builder()
                 .scheme("https")
                 .host("www.googleapis.com")

@@ -122,8 +122,24 @@ class CloudflareR2Provider(
                     )
                 }
 
+                val folderItems = r2Page.folders.map { folderName ->
+                    val fullPath = if (prefix.isEmpty()) "$folderName/" else "$prefix$folderName/"
+                    CloudMediaItem(
+                        providerId = providerId,
+                        providerName = displayName,
+                        remoteId = fullPath,
+                        name = folderName,
+                        mimeType = "application/x-directory",
+                        size = 0L,
+                        isFolder = true,
+                        folderPath = fullPath,
+                        capabilities = capabilities,
+                        fileType = com.example.domain.model.multicloud.CloudFileType.OTHER
+                    )
+                }
+
                 MultiCloudMediaPage(
-                    items = cloudItems,
+                    items = folderItems + cloudItems,
                     folders = r2Page.folders,
                     nextContinuationToken = r2Page.nextContinuationToken,
                     isTruncated = r2Page.isTruncated

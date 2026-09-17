@@ -23,23 +23,23 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Cloud
-import androidx.compose.material.icons.filled.CloudDone
 import androidx.compose.material.icons.filled.CloudOff
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.filled.OpenInBrowser
 import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Storage
+import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.filled.Warning
@@ -57,6 +57,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
@@ -71,18 +72,20 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.domain.model.multicloud.CloudCapabilities
@@ -94,6 +97,7 @@ import com.example.domain.model.multicloud.ProviderConnectionInfo
 fun ConnectedServicesScreen(
     viewModel: ConnectedServicesViewModel,
     onBack: () -> Unit = {},
+    onBrowseProvider: (String) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     BackHandler { onBack() }
@@ -116,9 +120,18 @@ fun ConnectedServicesScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Cloud Storage & Services", fontWeight = FontWeight.Bold) },
+                title = {
+                    Text(
+                        text = "Cloud Services",
+                        fontWeight = FontWeight.Bold,
+                        style = MaterialTheme.typography.titleLarge
+                    )
+                },
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
+                    IconButton(
+                        onClick = onBack,
+                        modifier = Modifier.testTag("btn_back")
+                    ) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                             contentDescription = "Back"
@@ -128,7 +141,8 @@ fun ConnectedServicesScreen(
                 actions = {
                     IconButton(
                         onClick = { viewModel.loadProviders() },
-                        enabled = !uiState.isLoading
+                        enabled = !uiState.isLoading,
+                        modifier = Modifier.testTag("btn_refresh_services")
                     ) {
                         Icon(
                             imageVector = Icons.Default.Refresh,
@@ -148,22 +162,22 @@ fun ConnectedServicesScreen(
                 end = 16.dp,
                 bottom = innerPadding.calculateBottomPadding() + 24.dp
             ),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
             modifier = Modifier.fillMaxSize()
         ) {
-            // Security Guarantee Banner
+            // Compact Security Notice
             item {
                 SecurityNoticeCard()
             }
 
-            // Providers Header
+            // Providers Section Header
             item {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 2.dp)
                 ) {
                     Text(
-                        text = "Supported Cloud Providers",
+                        text = "Cloud Providers",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.SemiBold,
                         color = MaterialTheme.colorScheme.onSurface
@@ -171,7 +185,7 @@ fun ConnectedServicesScreen(
                     Spacer(modifier = Modifier.weight(1f))
                     if (uiState.isLoading) {
                         CircularProgressIndicator(
-                            modifier = Modifier.size(18.dp),
+                            modifier = Modifier.size(16.dp),
                             strokeWidth = 2.dp
                         )
                     }
@@ -185,20 +199,19 @@ fun ConnectedServicesScreen(
                     onConnectClick = { viewModel.openConfigure(info.providerId) },
                     onDisconnectClick = { viewModel.requestDisconnect(info) },
                     onCapabilitiesClick = { viewModel.openCapabilities(info) },
-                    onQuickOfficialAuth = { providerId ->
-                        viewModel.startOfficialAuth(context, providerId)
-                    }
+                    onBrowseClick = { onBrowseProvider(info.providerId) },
+                    onSyncClick = { viewModel.loadProviders() }
                 )
             }
 
-            // Architecture Footer
+            // Privacy & Architecture Footer
             item {
                 ArchitectureDetailsCard()
             }
         }
     }
 
-    // Provider Configuration Dialogs
+    // Active Dialogs
     val activeConfigProvider = uiState.selectedProviderForConfig
     if (activeConfigProvider != null) {
         when (activeConfigProvider) {
@@ -214,11 +227,13 @@ fun ConnectedServicesScreen(
                 OfficialOAuthConnectDialog(
                     providerId = "google_photos",
                     providerName = "Google Photos",
-                    serviceDescription = "Google Photos is personal photo and video storage. CloudGallery connects directly using official Google OAuth to view and backup your photos.",
+                    serviceDescription = "Google Photos connects directly via official Google sign-in to view and back up your photos. CloudGallery accesses your media directly from your device.",
                     buttonLabel = "Continue with Google",
                     buttonBrandColor = Color(0xFF4285F4),
                     buttonTextColor = Color.White,
                     icon = Icons.Default.PhotoLibrary,
+                    isGoogle = true,
+                    savedClientId = viewModel.getSavedClientId("google_photos"),
                     onDismiss = { viewModel.closeConfigure() },
                     onStartAuth = { customClientId ->
                         viewModel.startOfficialAuth(context, "google_photos", customClientId)
@@ -232,11 +247,13 @@ fun ConnectedServicesScreen(
                 OfficialOAuthConnectDialog(
                     providerId = "google_drive",
                     providerName = "Google Drive",
-                    serviceDescription = "Google Drive provides cloud file and document storage. CloudGallery connects via official Google OAuth to browse and manage your photos and albums.",
+                    serviceDescription = "Google Drive connects via official Google sign-in to browse all your cloud files, documents, and folders with complete directory navigation.",
                     buttonLabel = "Continue with Google",
                     buttonBrandColor = Color(0xFF0F9D58),
                     buttonTextColor = Color.White,
                     icon = Icons.Default.Folder,
+                    isGoogle = true,
+                    savedClientId = viewModel.getSavedClientId("google_drive"),
                     onDismiss = { viewModel.closeConfigure() },
                     onStartAuth = { customClientId ->
                         viewModel.startOfficialAuth(context, "google_drive", customClientId)
@@ -255,6 +272,8 @@ fun ConnectedServicesScreen(
                     buttonBrandColor = Color(0xFF0078D4),
                     buttonTextColor = Color.White,
                     icon = Icons.Default.Cloud,
+                    isGoogle = false,
+                    savedClientId = viewModel.getSavedClientId("onedrive"),
                     onDismiss = { viewModel.closeConfigure() },
                     onStartAuth = { customClientId ->
                         viewModel.startOfficialAuth(context, "onedrive", customClientId)
@@ -268,11 +287,13 @@ fun ConnectedServicesScreen(
                 OfficialOAuthConnectDialog(
                     providerId = "dropbox",
                     providerName = "Dropbox",
-                    serviceDescription = "Dropbox connects via official Dropbox OAuth authorization. Tokens are generated through PKCE on this device and saved into Android Keystore.",
+                    serviceDescription = "Dropbox connects via official Dropbox OAuth PKCE authorization. Tokens are generated securely on this device and saved into Android Keystore.",
                     buttonLabel = "Continue with Dropbox",
                     buttonBrandColor = Color(0xFF0061FF),
                     buttonTextColor = Color.White,
                     icon = Icons.Default.Storage,
+                    isGoogle = false,
+                    savedClientId = viewModel.getSavedClientId("dropbox"),
                     onDismiss = { viewModel.closeConfigure() },
                     onStartAuth = { customClientId ->
                         viewModel.startOfficialAuth(context, "dropbox", customClientId)
@@ -307,19 +328,19 @@ fun ConnectedServicesScreen(
 private fun SecurityNoticeCard() {
     Card(
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)
+            containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f)
         ),
         shape = RoundedCornerShape(16.dp),
         modifier = Modifier.fillMaxWidth()
     ) {
         Row(
-            modifier = Modifier.padding(16.dp),
-            verticalAlignment = Alignment.Top,
-            horizontalArrangement = Arrangement.spacedBy(14.dp)
+            modifier = Modifier.padding(14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Box(
                 modifier = Modifier
-                    .size(40.dp)
+                    .size(36.dp)
                     .clip(CircleShape)
                     .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)),
                 contentAlignment = Alignment.Center
@@ -328,22 +349,21 @@ private fun SecurityNoticeCard() {
                     imageVector = Icons.Default.Security,
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(22.dp)
+                    modifier = Modifier.size(20.dp)
                 )
             }
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = "Client-Only Direct Cloud Access",
+                    text = "Direct Client Architecture",
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onPrimaryContainer
                 )
-                Spacer(modifier = Modifier.height(4.dp))
                 Text(
-                    text = "CloudGallery connects directly from your device to each cloud provider. No developer backend, no proxy servers, and no third-party tracking. All credentials and tokens are encrypted with hardware-backed Android Keystore.",
+                    text = "Hardware-backed Android Keystore tokens. No proxy servers, no third-party accounts.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.85f),
-                    lineHeight = 18.sp
+                    lineHeight = 16.sp
                 )
             }
         }
@@ -356,17 +376,17 @@ private fun OfficialProviderCard(
     onConnectClick: () -> Unit,
     onDisconnectClick: () -> Unit,
     onCapabilitiesClick: () -> Unit,
-    onQuickOfficialAuth: (String) -> Unit
+    onBrowseClick: () -> Unit,
+    onSyncClick: () -> Unit
 ) {
     val isConnected = info.connectionState.isConnected
     val providerTheme = getProviderTheme(info.providerId)
 
-    ElevatedCard(
-        shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.elevatedCardColors(
+    OutlinedCard(
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.outlinedCardColors(
             containerColor = MaterialTheme.colorScheme.surface
         ),
-        elevation = CardDefaults.elevatedCardElevation(defaultElevation = 2.dp),
         modifier = Modifier
             .fillMaxWidth()
             .testTag("provider_card_${info.providerId}")
@@ -374,17 +394,17 @@ private fun OfficialProviderCard(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(18.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            // Header Row: Icon, Name, Category, Status Badge
+            // Header Row: Brand Icon, Name & Subtitle, Status Badge
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Box(
                     modifier = Modifier
-                        .size(46.dp)
+                        .size(42.dp)
                         .clip(RoundedCornerShape(12.dp))
                         .background(providerTheme.brandColor.copy(alpha = 0.12f)),
                     contentAlignment = Alignment.Center
@@ -393,11 +413,11 @@ private fun OfficialProviderCard(
                         imageVector = providerTheme.icon,
                         contentDescription = info.displayName,
                         tint = providerTheme.brandColor,
-                        modifier = Modifier.size(26.dp)
+                        modifier = Modifier.size(24.dp)
                     )
                 }
 
-                Spacer(modifier = Modifier.width(14.dp))
+                Spacer(modifier = Modifier.width(12.dp))
 
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
@@ -420,44 +440,27 @@ private fun OfficialProviderCard(
             when (val state = info.connectionState) {
                 is CloudConnectionState.Connected -> {
                     Surface(
-                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                        shape = RoundedCornerShape(12.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+                        shape = RoundedCornerShape(10.dp),
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Column(
-                            modifier = Modifier.padding(12.dp),
+                            modifier = Modifier.padding(10.dp),
                             verticalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
-                            if (!state.accountEmail.isNullOrBlank()) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text(
-                                        text = "Account: ",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        fontWeight = FontWeight.Medium,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                    Text(
-                                        text = state.accountEmail,
-                                        style = MaterialTheme.typography.bodySmall,
-                                        fontWeight = FontWeight.SemiBold,
-                                        color = MaterialTheme.colorScheme.onSurface
-                                    )
-                                }
-                            } else if (!state.accountName.isNullOrBlank()) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text(
-                                        text = "Account: ",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        fontWeight = FontWeight.Medium,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                    Text(
-                                        text = state.accountName,
-                                        style = MaterialTheme.typography.bodySmall,
-                                        fontWeight = FontWeight.SemiBold,
-                                        color = MaterialTheme.colorScheme.onSurface
-                                    )
-                                }
+                            val accountDisplay = state.accountEmail ?: state.accountName ?: "Active"
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    text = "Account: ",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Text(
+                                    text = accountDisplay,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
                             }
 
                             // Storage Quota Bar if available
@@ -469,20 +472,20 @@ private fun OfficialProviderCard(
                                 val totalGb = totalBytes / (1024.0 * 1024.0 * 1024.0)
                                 val progress = (usedBytes.toFloat() / totalBytes.toFloat()).coerceIn(0f, 1f)
 
-                                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
                                     Row(
                                         modifier = Modifier.fillMaxWidth(),
                                         horizontalArrangement = Arrangement.SpaceBetween
                                     ) {
                                         Text(
-                                            text = "Storage Used",
+                                            text = "Storage",
                                             style = MaterialTheme.typography.labelSmall,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant
                                         )
                                         Text(
                                             text = String.format("%.1f GB / %.1f GB", usedGb, totalGb),
                                             style = MaterialTheme.typography.labelSmall,
-                                            fontWeight = FontWeight.SemiBold,
+                                            fontWeight = FontWeight.Medium,
                                             color = MaterialTheme.colorScheme.onSurface
                                         )
                                     }
@@ -490,17 +493,11 @@ private fun OfficialProviderCard(
                                         progress = { progress },
                                         modifier = Modifier
                                             .fillMaxWidth()
-                                            .height(6.dp)
+                                            .height(5.dp)
                                             .clip(RoundedCornerShape(3.dp)),
                                         color = providerTheme.brandColor
                                     )
                                 }
-                            } else if (quota != null && !quota.statusMessage.isNullOrEmpty()) {
-                                Text(
-                                    text = quota.statusMessage,
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
                             }
                         }
                     }
@@ -508,7 +505,7 @@ private fun OfficialProviderCard(
                 is CloudConnectionState.AuthRequired -> {
                     Surface(
                         color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.4f),
-                        shape = RoundedCornerShape(12.dp),
+                        shape = RoundedCornerShape(10.dp),
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Row(
@@ -520,7 +517,7 @@ private fun OfficialProviderCard(
                                 imageVector = Icons.Default.Warning,
                                 contentDescription = null,
                                 tint = MaterialTheme.colorScheme.error,
-                                modifier = Modifier.size(18.dp)
+                                modifier = Modifier.size(16.dp)
                             )
                             Text(
                                 text = state.message,
@@ -548,25 +545,51 @@ private fun OfficialProviderCard(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 if (isConnected) {
-                    TextButton(
-                        onClick = onCapabilitiesClick,
-                        modifier = Modifier.testTag("btn_caps_${info.providerId}")
+                    FilledTonalButton(
+                        onClick = onBrowseClick,
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier.testTag("btn_browse_${info.providerId}")
                     ) {
                         Icon(
-                            imageVector = Icons.Default.Info,
+                            imageVector = Icons.Default.FolderOpen,
                             contentDescription = null,
                             modifier = Modifier.size(16.dp)
                         )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("Capabilities")
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Browse Files")
                     }
 
                     Spacer(modifier = Modifier.width(8.dp))
 
-                    FilledTonalButton(
+                    IconButton(
+                        onClick = onSyncClick,
+                        modifier = Modifier.size(36.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Sync,
+                            contentDescription = "Sync",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+
+                    IconButton(
+                        onClick = onCapabilitiesClick,
+                        modifier = Modifier.size(36.dp).testTag("btn_caps_${info.providerId}")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Info,
+                            contentDescription = "Capabilities",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.width(4.dp))
+
+                    TextButton(
                         onClick = onDisconnectClick,
-                        colors = ButtonDefaults.filledTonalButtonColors(
-                            containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.5f),
+                        colors = ButtonDefaults.textButtonColors(
                             contentColor = MaterialTheme.colorScheme.error
                         ),
                         modifier = Modifier.testTag("btn_disconnect_${info.providerId}")
@@ -574,44 +597,25 @@ private fun OfficialProviderCard(
                         Text("Disconnect")
                     }
                 } else {
-                    if (info.providerId == "r2") {
-                        Button(
-                            onClick = onConnectClick,
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = providerTheme.brandColor
-                            ),
-                            modifier = Modifier.testTag("btn_connect_${info.providerId}")
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Key,
-                                contentDescription = null,
-                                modifier = Modifier.size(18.dp)
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("Configure R2")
-                        }
-                    } else {
-                        // Official Continue with [Provider] Button
-                        Button(
-                            onClick = onConnectClick,
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = providerTheme.brandColor,
-                                contentColor = Color.White
-                            ),
-                            shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier.testTag("btn_continue_${info.providerId}")
-                        ) {
-                            Icon(
-                                imageVector = providerTheme.icon,
-                                contentDescription = null,
-                                modifier = Modifier.size(18.dp)
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                text = providerTheme.continueButtonLabel,
-                                fontWeight = FontWeight.SemiBold
-                            )
-                        }
+                    Button(
+                        onClick = onConnectClick,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = providerTheme.brandColor,
+                            contentColor = Color.White
+                        ),
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier.testTag("btn_connect_${info.providerId}")
+                    ) {
+                        Icon(
+                            imageVector = providerTheme.icon,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = providerTheme.continueButtonLabel,
+                            fontWeight = FontWeight.SemiBold
+                        )
                     }
                 }
             }
@@ -626,16 +630,16 @@ private fun ConnectionStatusBadge(state: CloudConnectionState) {
             Tuple4("Connected", Color(0xFFE6F4EA), Color(0xFF137333), Icons.Default.CheckCircle)
         }
         is CloudConnectionState.Connecting -> {
-            Tuple4("Connecting...", Color(0xFFFEF7E0), Color(0xFFB06000), Icons.Default.Refresh)
+            Tuple4("Connecting", Color(0xFFFEF7E0), Color(0xFFB06000), Icons.Default.Refresh)
         }
         is CloudConnectionState.Refreshing -> {
-            Tuple4("Syncing...", Color(0xFFE8F0FE), Color(0xFF1A73E8), Icons.Default.Refresh)
+            Tuple4("Syncing", Color(0xFFE8F0FE), Color(0xFF1A73E8), Icons.Default.Refresh)
         }
         is CloudConnectionState.AuthRequired -> {
             Tuple4("Auth Required", Color(0xFFFCE8E6), Color(0xFFC5221F), Icons.Default.Lock)
         }
         is CloudConnectionState.PermissionRequired -> {
-            Tuple4("Permissions Needed", Color(0xFFFCE8E6), Color(0xFFC5221F), Icons.Default.Warning)
+            Tuple4("Permissions", Color(0xFFFCE8E6), Color(0xFFC5221F), Icons.Default.Warning)
         }
         is CloudConnectionState.Offline -> {
             Tuple4("Offline", Color(0xFFF1F3F4), Color(0xFF5F6368), Icons.Default.CloudOff)
@@ -661,7 +665,7 @@ private fun ConnectionStatusBadge(state: CloudConnectionState) {
                 imageVector = icon,
                 contentDescription = null,
                 tint = contentColor,
-                modifier = Modifier.size(14.dp)
+                modifier = Modifier.size(13.dp)
             )
             Text(
                 text = label,
@@ -686,14 +690,20 @@ private fun OfficialOAuthConnectDialog(
     buttonBrandColor: Color,
     buttonTextColor: Color,
     icon: ImageVector,
+    isGoogle: Boolean = false,
+    savedClientId: String? = null,
     onDismiss: () -> Unit,
     onStartAuth: (customClientId: String?) -> Unit,
     onManualCode: (code: String, customClientId: String?) -> Unit
 ) {
+    val clipboardManager = LocalClipboardManager.current
+    var customClientId by remember(savedClientId) { mutableStateOf(savedClientId ?: "") }
     var showAdvanced by remember { mutableStateOf(false) }
-    var customClientId by remember { mutableStateOf("") }
     var showManualCode by remember { mutableStateOf(false) }
     var manualCodeInput by remember { mutableStateOf("") }
+    var validationError by remember { mutableStateOf<String?>(null) }
+
+    val redirectUri = "cloudgallery://oauth/${providerId.replace('_', '-')}"
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -731,33 +741,109 @@ private fun OfficialOAuthConnectDialog(
                     lineHeight = 20.sp
                 )
 
-                Surface(
-                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
-                    shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Row(
-                        modifier = Modifier.padding(12.dp),
-                        verticalAlignment = Alignment.Top,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                // Google-specific Client ID setup
+                if (isGoogle) {
+                    Surface(
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth()
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.Lock,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(18.dp)
-                        )
-                        Text(
-                            text = "CloudGallery uses official OAuth 2.0 PKCE. Your credentials are processed directly by $providerName and tokens are stored in Android Keystore.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+                        Column(
+                            modifier = Modifier.padding(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Text(
+                                text = "Google Cloud Console Setup",
+                                style = MaterialTheme.typography.labelLarge,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Text(
+                                text = "Enter your Google OAuth 2.0 Client ID below. The app will launch Google's official sign-in screen.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text(
+                                    text = "Redirect URI: $redirectUri",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                IconButton(
+                                    onClick = { clipboardManager.setText(AnnotatedString(redirectUri)) },
+                                    modifier = Modifier.size(28.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.ContentCopy,
+                                        contentDescription = "Copy redirect URI",
+                                        modifier = Modifier.size(14.dp)
+                                    )
+                                }
+                            }
+
+                            OutlinedTextField(
+                                value = customClientId,
+                                onValueChange = {
+                                    customClientId = it
+                                    validationError = null
+                                },
+                                label = { Text("Google OAuth Client ID") },
+                                placeholder = { Text("xxxxxx.apps.googleusercontent.com") },
+                                singleLine = true,
+                                isError = validationError != null,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+
+                            if (validationError != null) {
+                                Text(
+                                    text = validationError ?: "",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.error
+                                )
+                            }
+                        }
+                    }
+                } else {
+                    Surface(
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(12.dp),
+                            verticalAlignment = Alignment.Top,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Lock,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Text(
+                                text = "Direct official PKCE authentication. Your credentials are processed directly by $providerName and stored in Android Keystore.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                     }
                 }
 
                 // Primary Official Sign-In Button
                 Button(
                     onClick = {
+                        if (isGoogle && customClientId.isBlank()) {
+                            validationError = "Please enter your Google Cloud OAuth Client ID to connect."
+                            return@Button
+                        }
                         onStartAuth(customClientId.takeIf { it.isNotBlank() })
                     },
                     colors = ButtonDefaults.buttonColors(
@@ -783,41 +869,43 @@ private fun OfficialOAuthConnectDialog(
                     )
                 }
 
-                // Expandable Custom Client ID for Developers
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { showAdvanced = !showAdvanced }
-                        .padding(vertical = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Text(
-                        text = "Custom Client ID (Optional)",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                    Icon(
-                        imageVector = if (showAdvanced) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary
-                    )
-                }
-
-                AnimatedVisibility(visible = showAdvanced) {
-                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                if (!isGoogle) {
+                    // Expandable Custom Client ID for Non-Google
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { showAdvanced = !showAdvanced }
+                            .padding(vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
                         Text(
-                            text = "Enter a custom OAuth Client ID if you prefer using your own Google Cloud / Microsoft Azure / Dropbox App Console project.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            text = "Custom Client ID (Optional)",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.primary
                         )
-                        OutlinedTextField(
-                            value = customClientId,
-                            onValueChange = { customClientId = it },
-                            label = { Text("Client ID / App Key") },
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth()
+                        Icon(
+                            imageVector = if (showAdvanced) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary
                         )
+                    }
+
+                    AnimatedVisibility(visible = showAdvanced) {
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text(
+                                text = "Enter a custom OAuth Client ID if you prefer using your own Azure or Dropbox developer app console project.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            OutlinedTextField(
+                                value = customClientId,
+                                onValueChange = { customClientId = it },
+                                label = { Text("Client ID / App Key") },
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
                     }
                 }
 
@@ -918,7 +1006,7 @@ private fun ConfigureR2Dialog(
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Text(
-                    text = "Enter your personal Cloudflare R2 S3 credentials. Keys are encrypted in hardware-backed Android Keystore.",
+                    text = "Enter your Cloudflare R2 S3 credentials. Keys are encrypted in hardware-backed Android Keystore.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )

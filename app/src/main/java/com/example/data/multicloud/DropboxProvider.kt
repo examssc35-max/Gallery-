@@ -2,6 +2,7 @@ package com.example.data.multicloud
 
 import com.example.domain.model.multicloud.CloudCapabilities
 import com.example.domain.model.multicloud.CloudConnectionState
+import com.example.domain.model.multicloud.CloudFileType
 import com.example.domain.model.multicloud.CloudMediaItem
 import com.example.domain.model.multicloud.CloudSearchRequest
 import com.example.domain.model.multicloud.CloudStorageQuota
@@ -197,7 +198,24 @@ class DropboxProvider(
                     val entry = entries.getJSONObject(i)
                     val tag = entry.optString(".tag")
                     if (tag == "folder") {
-                        folders.add(entry.optString("name"))
+                        val folderName = entry.optString("name")
+                        val pathLower = entry.optString("path_lower")
+                        folders.add(folderName)
+                        items.add(
+                            CloudMediaItem(
+                                providerId = providerId,
+                                providerName = displayName,
+                                remoteId = pathLower,
+                                name = folderName,
+                                mimeType = "application/vnd.dropbox.folder",
+                                size = 0L,
+                                isFolder = true,
+                                folderPath = pathLower,
+                                parentId = folderId,
+                                capabilities = capabilities,
+                                fileType = CloudFileType.OTHER
+                            )
+                        )
                     } else if (tag == "file") {
                         parseDropboxItem(entry, token)?.let { items.add(it) }
                     }

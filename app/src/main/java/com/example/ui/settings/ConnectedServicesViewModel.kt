@@ -48,6 +48,9 @@ class ConnectedServicesViewModel(
     private val _uiState = MutableStateFlow(ConnectedServicesUiState())
     val uiState: StateFlow<ConnectedServicesUiState> = _uiState.asStateFlow()
 
+    private val _savedClientIds = MutableStateFlow<Map<String, String>>(emptyMap())
+    val savedClientIds: StateFlow<Map<String, String>> = _savedClientIds.asStateFlow()
+
     init {
         loadProviders()
     }
@@ -55,6 +58,13 @@ class ConnectedServicesViewModel(
     fun loadProviders() {
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isLoading = true, errorMessage = null)
+
+            val clientIds = mutableMapOf<String, String>()
+            listOf("google_photos", "google_drive", "onedrive", "dropbox").forEach { pid ->
+                tokenStorage.getClientId(pid)?.let { clientIds[pid] = it }
+            }
+            _savedClientIds.value = clientIds
+
             val all = multiCloudRepository.getAllProviders()
             val list = all.map { provider ->
                 val state = provider.getConnectionState()
@@ -125,16 +135,41 @@ class ConnectedServicesViewModel(
         }
     }
 
+    fun getSavedClientId(providerId: String): String? {
+        return _savedClientIds.value[providerId]
+    }
+
+    fun saveClientId(providerId: String, clientId: String) {
+        val trimmed = clientId.trim()
+        _savedClientIds.value = _savedClientIds.value + (providerId to trimmed)
+        viewModelScope.launch {
+            tokenStorage.saveClientId(providerId, trimmed)
+        }
+    }
+
     /**
      * Launches the official provider sign-in flow via the device browser.
      */
     fun startOfficialAuth(context: Context, providerId: String, customClientId: String? = null) {
-        val authUrl = when (providerId) {
-            "google_photos" -> googlePhotosAuthProvider.buildAuthorizationUrl(customClientId)
-            "google_drive" -> googleDriveAuthProvider.buildAuthorizationUrl(customClientId)
-            "onedrive" -> microsoftOneDriveAuthProvider.buildAuthorizationUrl(customClientId)
-            "dropbox" -> dropboxAuthProvider.buildAuthorizationUrl(customClientId)
-            else -> null
+        val cid = customClientId?.takeIf { it.isNotBlank() } ?: _savedClientIds.value[providerId]
+        if (customClientId != null && customClientId.isNotBlank()) {
+            saveClientId(providerId, customClientId)
+        }
+
+        val authUrl = try {
+            when (providerId) {
+                "google_photos" -> googlePhotosAuthProvider.buildAuthorizationUrl(cid)
+                "google_drive" -> googleDriveAuthProvider.buildAuthorizationUrl(cid)
+                "onedrive" -> microsoftOneDriveAuthProvider.buildAuthorizationUrl(cid)
+                "dropbox" -> dropboxAuthProvider.buildAuthorizationUrl(cid)
+                else -> null
+            }
+        } catch (e: Exception) {
+            _uiState.value = _uiState.value.copy(
+                errorMessage = e.message ?: "Authentication setup failed for $providerId"
+            )
+            openConfigure(providerId)
+            return
         }
 
         if (authUrl == null) {
@@ -145,7 +180,8 @@ class ConnectedServicesViewModel(
         val providerName = multiCloudRepository.getProvider(providerId)?.displayName ?: providerId
         _uiState.value = _uiState.value.copy(
             isAuthenticating = true,
-            authenticatingProviderName = providerName
+            authenticatingProviderName = providerName,
+            selectedProviderForConfig = null
         )
 
         try {
@@ -253,11 +289,15 @@ class ConnectedServicesViewModel(
     fun exchangeManualCode(providerId: String, code: String, customClientId: String? = null) {
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isLoading = true, errorMessage = null)
+            val cid = customClientId?.takeIf { it.isNotBlank() } ?: _savedClientIds.value[providerId]
+            if (customClientId != null && customClientId.isNotBlank()) {
+                saveClientId(providerId, customClientId)
+            }
             val result = when (providerId) {
-                "google_photos" -> googlePhotosAuthProvider.handleCallback(code, customClientId)
-                "google_drive" -> googleDriveAuthProvider.handleCallback(code, customClientId)
-                "onedrive" -> microsoftOneDriveAuthProvider.handleCallback(code, customClientId)
-                "dropbox" -> dropboxAuthProvider.handleCallback(code, customClientId)
+                "google_photos" -> googlePhotosAuthProvider.handleCallback(code, cid)
+                "google_drive" -> googleDriveAuthProvider.handleCallback(code, cid)
+                "onedrive" -> microsoftOneDriveAuthProvider.handleCallback(code, cid)
+                "dropbox" -> dropboxAuthProvider.handleCallback(code, cid)
                 else -> Result.failure(IllegalArgumentException("Unsupported OAuth provider: $providerId"))
             }
 

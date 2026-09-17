@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
@@ -30,12 +31,14 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ArrowDownward
+import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.CloudQueue
@@ -45,7 +48,11 @@ import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.FolderOpen
+import androidx.compose.material.icons.filled.FormatListBulleted
 import androidx.compose.material.icons.filled.GridView
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.InsertDriveFile
+import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.PieChart
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
@@ -85,7 +92,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
@@ -93,8 +102,12 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import coil.compose.AsyncImage
 import com.example.data.local.SortOrder
 import com.example.domain.model.MediaItem
+import com.example.domain.model.multicloud.CloudFileType
+import com.example.domain.model.multicloud.CloudFileTypeResolver
+import com.example.domain.model.multicloud.CloudMediaItem
 import com.example.domain.repository.R2Repository
 import com.example.ui.gallery.components.MediaGridItem
 import kotlinx.coroutines.launch
@@ -125,6 +138,7 @@ fun CloudTabScreen(
     var batchDownloadProgress by remember { mutableStateOf<Pair<Int, Int>?>(null) }
 
     val filteredItems = remember(uiState) { viewModel.getFilteredItems() }
+    val filteredCloudFiles = remember(uiState) { viewModel.getFilteredCloudFiles() }
     val gridState = rememberLazyGridState()
 
     // Detect when user scrolled to bottom to trigger loadMore
@@ -151,6 +165,10 @@ fun CloudTabScreen(
                 onNavigateUp = { viewModel.navigateUp() },
                 onRefresh = { viewModel.refresh() },
                 onToggleFlatten = { viewModel.toggleFlattenFolders() },
+                onToggleViewMode = { viewModel.toggleViewMode() },
+                onFileTypeFilterChange = { viewModel.setFileTypeFilter(it) },
+                breadcrumbs = viewModel.getBreadcrumbs(),
+                onBreadcrumbClick = { viewModel.navigateToFolder(it) },
                 onShowSortMenu = { showSortMenu = true },
                 onNavigateToStorageUsage = onNavigateToStorageUsage,
                 onNavigateToConnectedServices = onNavigateToConnectedServices,
@@ -232,7 +250,7 @@ fun CloudTabScreen(
                 }
 
                 // 2. Loading initial data
-                uiState.isLoading && uiState.items.isEmpty() -> {
+                uiState.isLoading && uiState.items.isEmpty() && uiState.cloudFiles.isEmpty() -> {
                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             CircularProgressIndicator()
@@ -246,8 +264,8 @@ fun CloudTabScreen(
                     }
                 }
 
-                // 3. Connected but bucket is empty (No items and no folders)
-                filteredItems.isEmpty() && uiState.folders.isEmpty() -> {
+                // 3. Connected but bucket/cloud is empty (No items, no cloud files, and no folders)
+                filteredItems.isEmpty() && filteredCloudFiles.isEmpty() && uiState.folders.isEmpty() -> {
                     CloudEmptyBucketState(
                         searchQuery = uiState.searchQuery,
                         currentPrefix = uiState.currentPrefix,
@@ -255,7 +273,207 @@ fun CloudTabScreen(
                     )
                 }
 
-                // 4. Populated bucket: Gallery Grid
+                // 4. Multi-Cloud Files Browser (Unified files or Photos fallback)
+                filteredCloudFiles.isNotEmpty() -> {
+                    val pullRefreshState = rememberPullToRefreshState()
+
+                    PullToRefreshBox(
+                        isRefreshing = uiState.isRefreshing,
+                        onRefresh = { viewModel.refresh() },
+                        state = pullRefreshState,
+                        modifier = Modifier.fillMaxSize()
+                    ) {
+                        if (uiState.isGridView) {
+                            LazyVerticalGrid(
+                                state = gridState,
+                                columns = GridCells.Fixed(gridColumns),
+                                contentPadding = PaddingValues(2.dp),
+                                horizontalArrangement = Arrangement.spacedBy(2.dp),
+                                verticalArrangement = Arrangement.spacedBy(2.dp),
+                                modifier = Modifier.fillMaxSize()
+                            ) {
+                                // Folder Chips row at top if folders exist and not in flatten mode
+                                if (uiState.folders.isNotEmpty() && !uiState.isFlattenFolders) {
+                                    item(span = { GridItemSpan(gridColumns) }) {
+                                        FolderChipsRow(
+                                            folders = uiState.folders,
+                                            currentPrefix = uiState.currentPrefix,
+                                            onFolderClick = { folder ->
+                                                viewModel.navigateToFolder(folder)
+                                            }
+                                        )
+                                    }
+                                }
+
+                                itemsIndexed(
+                                    items = filteredCloudFiles,
+                                    key = { _, file -> file.remoteId.ifEmpty { file.folderPath ?: file.name } }
+                                ) { _, file ->
+                                    val mediaItem = remember(file) { file.toMediaItem() }
+                                    val fileId = mediaItem.id
+                                    if (file.isFolder) {
+                                        CloudGridFolderCard(
+                                            file = file,
+                                            onClick = { viewModel.navigateToFolder(file.folderPath ?: file.name) }
+                                        )
+                                    } else if (file.isMedia) {
+                                        Box {
+                                            MediaGridItem(
+                                                item = mediaItem,
+                                                isSelected = fileId in uiState.selectedIds,
+                                                isSelectionMode = uiState.isSelectionMode,
+                                                isBackedUp = true,
+                                                onClick = {
+                                                    if (uiState.isSelectionMode) {
+                                                        viewModel.toggleSelection(fileId)
+                                                    } else {
+                                                        val idx = filteredItems.indexOfFirst { it.id == mediaItem.id || it.cloudKey == file.remoteId }
+                                                        if (idx >= 0) {
+                                                            onOpenViewer(idx, filteredItems)
+                                                        } else {
+                                                            onOpenViewer(0, listOf(mediaItem))
+                                                        }
+                                                    }
+                                                },
+                                                onLongClick = {
+                                                    viewModel.toggleSelection(fileId)
+                                                }
+                                            )
+
+                                            // Provider Pill Badge
+                                            Surface(
+                                                color = Color.Black.copy(alpha = 0.65f),
+                                                shape = RoundedCornerShape(4.dp),
+                                                modifier = Modifier
+                                                    .padding(4.dp)
+                                                    .align(Alignment.TopStart)
+                                            ) {
+                                                Text(
+                                                    text = file.providerName,
+                                                    color = Color.White,
+                                                    fontSize = 9.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                                                )
+                                            }
+                                        }
+                                    } else {
+                                        CloudGridFileCard(
+                                            file = file,
+                                            isSelected = fileId in uiState.selectedIds,
+                                            isSelectionMode = uiState.isSelectionMode,
+                                            onClick = {
+                                                if (uiState.isSelectionMode) {
+                                                    viewModel.toggleSelection(fileId)
+                                                } else {
+                                                    viewModel.openFileDetails(file)
+                                                }
+                                            },
+                                            onLongClick = {
+                                                viewModel.toggleSelection(fileId)
+                                            }
+                                        )
+                                    }
+                                }
+
+                                if (uiState.isLoadingMore) {
+                                    item(span = { GridItemSpan(gridColumns) }) {
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(16.dp),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
+                                        }
+                                    }
+                                }
+                            }
+                        } else {
+                            // List View
+                            LazyColumn(
+                                modifier = Modifier.fillMaxSize(),
+                                contentPadding = PaddingValues(vertical = 4.dp)
+                            ) {
+                                if (uiState.folders.isNotEmpty() && !uiState.isFlattenFolders) {
+                                    item {
+                                        FolderChipsRow(
+                                            folders = uiState.folders,
+                                            currentPrefix = uiState.currentPrefix,
+                                            onFolderClick = { folder ->
+                                                viewModel.navigateToFolder(folder)
+                                            }
+                                        )
+                                    }
+                                }
+
+                                items(
+                                    items = filteredCloudFiles,
+                                    key = { file -> file.remoteId.ifEmpty { file.folderPath ?: file.name } }
+                                ) { file ->
+                                    val mediaItem = remember(file) { file.toMediaItem() }
+                                    val fileId = mediaItem.id
+                                    if (file.isFolder) {
+                                        CloudListFolderRow(
+                                            folder = file.name,
+                                            currentPrefix = uiState.currentPrefix,
+                                            onClick = { viewModel.navigateToFolder(file.folderPath ?: file.name) }
+                                        )
+                                    } else {
+                                        CloudListFileRow(
+                                            file = file,
+                                            isSelected = fileId in uiState.selectedIds,
+                                            isSelectionMode = uiState.isSelectionMode,
+                                            onClick = {
+                                                if (uiState.isSelectionMode) {
+                                                    viewModel.toggleSelection(fileId)
+                                                } else if (file.isMedia) {
+                                                    val idx = filteredItems.indexOfFirst { it.id == mediaItem.id || it.cloudKey == file.remoteId }
+                                                    if (idx >= 0) {
+                                                        onOpenViewer(idx, filteredItems)
+                                                    } else {
+                                                        onOpenViewer(0, listOf(mediaItem))
+                                                    }
+                                                } else {
+                                                    viewModel.openFileDetails(file)
+                                                }
+                                            },
+                                            onLongClick = {
+                                                viewModel.toggleSelection(fileId)
+                                            },
+                                            onInfoClick = {
+                                                viewModel.openFileDetails(file)
+                                            },
+                                            onDownloadClick = {
+                                                viewModel.downloadFile(context, file) { ok, path ->
+                                                    scope.launch {
+                                                        if (ok) snackbarHostState.showSnackbar("Downloaded to $path")
+                                                        else snackbarHostState.showSnackbar("Download failed")
+                                                    }
+                                                }
+                                            }
+                                        )
+                                    }
+                                }
+
+                                if (uiState.isLoadingMore) {
+                                    item {
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(16.dp),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // 5. Populated bucket: Gallery Grid (Legacy R2 items fallback)
                 else -> {
                     val pullRefreshState = rememberPullToRefreshState()
 
@@ -492,6 +710,36 @@ fun CloudTabScreen(
             }
         )
     }
+
+    // Cloud File Details Modal Dialog
+    if (uiState.selectedFileForDetails != null) {
+        CloudFileDetailsDialog(
+            file = uiState.selectedFileForDetails!!,
+            onDismiss = { viewModel.closeFileDetails() },
+            onDownload = { fileToDownload ->
+                viewModel.downloadFile(context, fileToDownload) { success, resultPath ->
+                    viewModel.closeFileDetails()
+                    scope.launch {
+                        if (success) {
+                            snackbarHostState.showSnackbar("Downloaded to $resultPath")
+                        } else {
+                            snackbarHostState.showSnackbar("Download failed: ${resultPath ?: "Unknown error"}")
+                        }
+                    }
+                }
+            },
+            onOpenMedia = { fileToOpen ->
+                viewModel.closeFileDetails()
+                val media = fileToOpen.toMediaItem()
+                val idx = filteredItems.indexOfFirst { it.id == media.id || it.cloudKey == fileToOpen.remoteId }
+                if (idx >= 0) {
+                    onOpenViewer(idx, filteredItems)
+                } else {
+                    onOpenViewer(0, listOf(media))
+                }
+            }
+        )
+    }
 }
 
 @Composable
@@ -503,6 +751,10 @@ private fun CloudSubHeader(
     onNavigateUp: () -> Unit,
     onRefresh: () -> Unit,
     onToggleFlatten: () -> Unit,
+    onToggleViewMode: () -> Unit,
+    onFileTypeFilterChange: (CloudFileType?) -> Unit,
+    breadcrumbs: List<Pair<String, String>>,
+    onBreadcrumbClick: (String) -> Unit,
     onShowSortMenu: () -> Unit,
     onNavigateToStorageUsage: () -> Unit = {},
     onNavigateToConnectedServices: () -> Unit = {},
@@ -622,6 +874,17 @@ private fun CloudSubHeader(
                         }
 
                         IconButton(
+                            onClick = onToggleViewMode,
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            Icon(
+                                imageVector = if (uiState.isGridView) Icons.Default.FormatListBulleted else Icons.Default.GridView,
+                                contentDescription = if (uiState.isGridView) "Switch to List View" else "Switch to Grid View",
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+
+                        IconButton(
                             onClick = onToggleFlatten,
                             modifier = Modifier.size(36.dp)
                         ) {
@@ -667,6 +930,41 @@ private fun CloudSubHeader(
                 }
             }
 
+            // Interactive Breadcrumb Trail Bar (when not in flattened mode and nested)
+            if (!uiState.isFlattenFolders && breadcrumbs.size > 1) {
+                LazyRow(
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 2.dp),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    items(breadcrumbs.size) { idx ->
+                        val item = breadcrumbs[idx]
+                        val name = item.first
+                        val prefix = item.second
+                        val isLast = idx == breadcrumbs.size - 1
+                        Text(
+                            text = name,
+                            style = MaterialTheme.typography.bodySmall,
+                            fontWeight = if (isLast) FontWeight.Bold else FontWeight.Normal,
+                            color = if (isLast) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(4.dp))
+                                .clickable { onBreadcrumbClick(prefix) }
+                                .padding(horizontal = 4.dp, vertical = 2.dp)
+                        )
+                        if (!isLast) {
+                            Icon(
+                                imageVector = Icons.Default.ChevronRight,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                                modifier = Modifier.size(14.dp)
+                            )
+                        }
+                    }
+                }
+            }
+
             // Multi-Cloud Provider Filter Chips Row
             if (uiState.connectedProviders.size > 1) {
                 LazyRow(
@@ -686,6 +984,34 @@ private fun CloudSubHeader(
                             selected = uiState.providerFilter == prov.providerId,
                             onClick = { onProviderFilterChange(prov.providerId) },
                             label = { Text(prov.displayName, fontSize = 12.sp) }
+                        )
+                    }
+                }
+            }
+
+            // File Type Filter Chips Row
+            if (uiState.cloudFiles.isNotEmpty() || uiState.connectedProviders.isNotEmpty()) {
+                val fileTypes = listOf(
+                    null to "All",
+                    CloudFileType.IMAGE to "Photos",
+                    CloudFileType.VIDEO to "Videos",
+                    CloudFileType.DOCUMENT to "Docs",
+                    CloudFileType.AUDIO to "Audio",
+                    CloudFileType.ARCHIVE to "Archives",
+                    CloudFileType.APK to "APKs",
+                    CloudFileType.TEXT to "Text",
+                    CloudFileType.OTHER to "Other"
+                )
+                LazyRow(
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 2.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    items(fileTypes) { (type, label) ->
+                        FilterChip(
+                            selected = uiState.fileTypeFilter == type,
+                            onClick = { onFileTypeFilterChange(type) },
+                            label = { Text(label, fontSize = 12.sp) }
                         )
                     }
                 }
@@ -883,3 +1209,462 @@ private fun CloudEmptyBucketState(
         }
     }
 }
+
+@Composable
+private fun CloudGridFolderCard(
+    file: CloudMediaItem,
+    onClick: () -> Unit
+) {
+    Card(
+        onClick = onClick,
+        shape = RoundedCornerShape(8.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)),
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(110.dp)
+            .padding(2.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(8.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            Icon(
+                imageVector = Icons.Default.Folder,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(36.dp)
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = file.name,
+                style = MaterialTheme.typography.bodySmall,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                textAlign = TextAlign.Center
+            )
+            Text(
+                text = "Folder",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
+@Composable
+private fun CloudGridFileCard(
+    file: CloudMediaItem,
+    isSelected: Boolean,
+    isSelectionMode: Boolean,
+    onClick: () -> Unit,
+    onLongClick: () -> Unit
+) {
+    val iconColor = CloudFileTypeResolver.getIconColor(file.fileType)
+    val iconVector = CloudFileTypeResolver.getIcon(file.fileType)
+
+    Card(
+        shape = RoundedCornerShape(8.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)
+            else MaterialTheme.colorScheme.surfaceContainerLow
+        ),
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(130.dp)
+            .padding(2.dp)
+            .clip(RoundedCornerShape(8.dp))
+            .clickable(onClick = onClick)
+    ) {
+        Box(modifier = Modifier.fillMaxSize()) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(8.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+            ) {
+                Surface(
+                    shape = CircleShape,
+                    color = iconColor.copy(alpha = 0.15f),
+                    modifier = Modifier.size(44.dp)
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = iconVector,
+                            contentDescription = null,
+                            tint = iconColor,
+                            modifier = Modifier.size(26.dp)
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(6.dp))
+
+                Text(
+                    text = file.name,
+                    style = MaterialTheme.typography.bodySmall,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    textAlign = TextAlign.Center
+                )
+
+                if (file.size > 0) {
+                    Text(
+                        text = formatFileSize(file.size),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+
+            // Top-left provider badge
+            Surface(
+                color = Color.Black.copy(alpha = 0.65f),
+                shape = RoundedCornerShape(4.dp),
+                modifier = Modifier
+                    .padding(4.dp)
+                    .align(Alignment.TopStart)
+            ) {
+                Text(
+                    text = file.providerName,
+                    color = Color.White,
+                    fontSize = 9.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                )
+            }
+
+            // Selection check indicator
+            if (isSelectionMode) {
+                Surface(
+                    color = if (isSelected) MaterialTheme.colorScheme.primary else Color.Black.copy(alpha = 0.35f),
+                    shape = CircleShape,
+                    modifier = Modifier
+                        .padding(4.dp)
+                        .size(20.dp)
+                        .align(Alignment.TopEnd)
+                ) {
+                    if (isSelected) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Text("✓", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CloudListFolderRow(
+    folder: String,
+    currentPrefix: String,
+    onClick: () -> Unit
+) {
+    val folderName = folder.removePrefix(currentPrefix).trimEnd('/')
+    Surface(
+        color = MaterialTheme.colorScheme.surface,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Surface(
+                shape = RoundedCornerShape(8.dp),
+                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f),
+                modifier = Modifier.size(42.dp)
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = Icons.Default.Folder,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(24.dp)
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.width(14.dp))
+
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = folderName,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    text = "Folder",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
+            Icon(
+                imageVector = Icons.Default.ChevronRight,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                modifier = Modifier.size(20.dp)
+            )
+        }
+    }
+}
+
+@Composable
+private fun CloudListFileRow(
+    file: CloudMediaItem,
+    isSelected: Boolean,
+    isSelectionMode: Boolean,
+    onClick: () -> Unit,
+    onLongClick: () -> Unit,
+    onInfoClick: () -> Unit,
+    onDownloadClick: () -> Unit
+) {
+    val iconColor = CloudFileTypeResolver.getIconColor(file.fileType)
+    val iconVector = CloudFileTypeResolver.getIcon(file.fileType)
+
+    Surface(
+        color = if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f)
+        else MaterialTheme.colorScheme.surface,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // Thumbnail or file icon
+            if (file.isMedia && (!file.thumbnailUrl.isNullOrEmpty() || !file.downloadUrl.isNullOrEmpty())) {
+                AsyncImage(
+                    model = file.thumbnailUrl ?: file.downloadUrl,
+                    contentDescription = file.name,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier
+                        .size(46.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(MaterialTheme.colorScheme.surfaceVariant)
+                )
+            } else {
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = iconColor.copy(alpha = 0.15f),
+                    modifier = Modifier.size(46.dp)
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = iconVector,
+                            contentDescription = null,
+                            tint = iconColor,
+                            modifier = Modifier.size(26.dp)
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.width(12.dp))
+
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = file.name,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+
+                val detailsText = buildString {
+                    if (file.size > 0) append(formatFileSize(file.size))
+                    if (isNotEmpty()) append(" • ")
+                    append(file.providerName)
+                    if (file.modifiedAt > 0) {
+                        append(" • ")
+                        append(formatDate(file.modifiedAt))
+                    }
+                }
+
+                Text(
+                    text = detailsText,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+
+            // Trailing actions
+            if (!isSelectionMode) {
+                IconButton(
+                    onClick = onDownloadClick,
+                    modifier = Modifier.size(36.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Download,
+                        contentDescription = "Download ${file.name}",
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+
+                IconButton(
+                    onClick = onInfoClick,
+                    modifier = Modifier.size(36.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Info,
+                        contentDescription = "File Details",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+            } else {
+                Surface(
+                    color = if (isSelected) MaterialTheme.colorScheme.primary else Color.Black.copy(alpha = 0.35f),
+                    shape = CircleShape,
+                    modifier = Modifier.size(22.dp)
+                ) {
+                    if (isSelected) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Text("✓", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CloudFileDetailsDialog(
+    file: CloudMediaItem,
+    onDismiss: () -> Unit,
+    onDownload: (CloudMediaItem) -> Unit,
+    onOpenMedia: (CloudMediaItem) -> Unit
+) {
+    val iconColor = CloudFileTypeResolver.getIconColor(file.fileType)
+    val iconVector = CloudFileTypeResolver.getIcon(file.fileType)
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        icon = {
+            Surface(
+                shape = CircleShape,
+                color = iconColor.copy(alpha = 0.15f),
+                modifier = Modifier.size(56.dp)
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = iconVector,
+                        contentDescription = null,
+                        tint = iconColor,
+                        modifier = Modifier.size(32.dp)
+                    )
+                }
+            }
+        },
+        title = {
+            Text(
+                text = file.name,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                textAlign = TextAlign.Center
+            )
+        },
+        text = {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                DetailRow(label = "Source Provider", value = file.providerName)
+                DetailRow(label = "Category", value = file.fileType.displayName)
+                if (file.mimeType.isNotEmpty()) {
+                    DetailRow(label = "MIME Type", value = file.mimeType)
+                }
+                if (file.size > 0) {
+                    DetailRow(label = "Size", value = formatFileSize(file.size))
+                }
+                if (file.modifiedAt > 0) {
+                    DetailRow(label = "Last Modified", value = formatDate(file.modifiedAt))
+                }
+                if (!file.folderPath.isNullOrBlank()) {
+                    DetailRow(label = "Cloud Path", value = file.folderPath)
+                }
+            }
+        },
+        confirmButton = {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (file.isMedia) {
+                    TextButton(onClick = { onOpenMedia(file) }) {
+                        Icon(Icons.Default.OpenInNew, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("View")
+                    }
+                }
+                Button(onClick = { onDownload(file) }) {
+                    Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Download")
+                }
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Close")
+            }
+        }
+    )
+}
+
+@Composable
+private fun DetailRow(label: String, value: String) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.Top
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.weight(0.4f)
+        )
+        Text(
+            text = value,
+            style = MaterialTheme.typography.bodySmall,
+            fontWeight = FontWeight.Medium,
+            textAlign = TextAlign.End,
+            modifier = Modifier.weight(0.6f)
+        )
+    }
+}
+
+private fun formatFileSize(bytes: Long): String {
+    if (bytes <= 0) return "0 B"
+    val units = arrayOf("B", "KB", "MB", "GB", "TB")
+    val digitGroups = (Math.log10(bytes.toDouble()) / Math.log10(1024.0)).toInt().coerceIn(0, units.size - 1)
+    val value = bytes / Math.pow(1024.0, digitGroups.toDouble())
+    return String.format(java.util.Locale.US, "%.1f %s", value, units[digitGroups])
+}
+
+private fun formatDate(timestamp: Long): String {
+    if (timestamp <= 0) return ""
+    val date = java.util.Date(if (timestamp < 1000000000000L) timestamp * 1000 else timestamp)
+    val sdf = java.text.SimpleDateFormat("MMM d, yyyy", java.util.Locale.getDefault())
+    return sdf.format(date)
+}
+
