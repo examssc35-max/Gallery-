@@ -38,6 +38,7 @@ import com.example.ui.cloud.CloudTabViewModel
 import com.example.ui.duplicate.DuplicateFinderScreen
 import com.example.ui.gallery.GalleryScreen
 import com.example.ui.gallery.GalleryViewModel
+import com.example.ui.settings.ConnectedServicesScreen
 import com.example.ui.settings.SettingsScreen
 import com.example.ui.storage.CloudStorageUsageScreen
 import com.example.ui.storage.StorageAnalyzerScreen
@@ -48,21 +49,6 @@ import com.example.ui.viewer.MediaViewerScreen
 import com.example.ui.viewer.MediaViewerStateHolder
 
 class MainActivity : ComponentActivity() {
-
-    private var connectedServicesVm: com.example.ui.settings.ConnectedServicesViewModel? = null
-
-    override fun onNewIntent(intent: android.content.Intent) {
-        super.onNewIntent(intent)
-        setIntent(intent)
-        handleOAuthDeepLink(intent)
-    }
-
-    private fun handleOAuthDeepLink(intent: android.content.Intent?) {
-        val uri = intent?.data ?: return
-        if (uri.scheme == "cloudgallery" && uri.host == "oauth") {
-            connectedServicesVm?.handleAuthCallback(uri)
-        }
-    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -86,25 +72,10 @@ class MainActivity : ComponentActivity() {
         val backupViewModel = BackupViewModel(backupRepository, r2Repository)
         val cloudViewModel = CloudBrowserViewModel(r2Repository)
 
-        val secureTokenStorage = com.example.security.SecureCloudTokenStorage(applicationContext)
-        val multiCloudRepository = com.example.data.repository.MultiCloudRepositoryImpl(
-            r2Repository = r2Repository,
-            tokenStorage = secureTokenStorage
-        )
-        val connectedServicesViewModel = com.example.ui.settings.ConnectedServicesViewModel(
-            multiCloudRepository = multiCloudRepository,
-            r2Repository = r2Repository,
-            preferencesManager = preferencesManager,
-            tokenStorage = secureTokenStorage
-        )
-        connectedServicesVm = connectedServicesViewModel
-        handleOAuthDeepLink(intent)
-
         val cloudTabViewModel = CloudTabViewModel(
             r2Repository = r2Repository,
             backupRepository = backupRepository,
-            preferencesManager = preferencesManager,
-            multiCloudRepository = multiCloudRepository
+            preferencesManager = preferencesManager
         )
         val getStorageUsageUseCase = GetStorageUsageUseCase(r2Repository)
         val storageUsageViewModel = StorageUsageViewModel(getStorageUsageUseCase, r2Repository)
@@ -179,7 +150,7 @@ class MainActivity : ComponentActivity() {
                                     navController.navigate(NavRoute.SmartCollectionsSettings.route)
                                 },
                                 onOpenViewer = { index, items ->
-                                    com.example.ui.viewer.MediaViewerStateHolder.setViewerData(items, index, false)
+                                    MediaViewerStateHolder.setViewerData(items, index, false)
                                     activeViewerList = items
                                     activeViewerIndex = index
                                     activeViewerAutoPlayVideo = false
@@ -192,7 +163,6 @@ class MainActivity : ComponentActivity() {
                                 onNavigateToStorage = { navController.navigate(NavRoute.Storage.route) },
                                 onNavigateToTrash = { navController.navigate(NavRoute.Trash.route) },
                                 onNavigateToCloudStorageUsage = { navController.navigate(NavRoute.CloudStorageUsage.route) },
-                                onNavigateToConnectedServices = { navController.navigate(NavRoute.ConnectedServices.route) },
                                 onNavigateToAiAssistant = { navController.navigate(NavRoute.AiAssistant.route) }
                             )
                         }
@@ -202,8 +172,8 @@ class MainActivity : ComponentActivity() {
                             arguments = listOf(navArgument("index") { type = NavType.IntType })
                         ) { backStackEntry ->
                             val indexArg = backStackEntry.arguments?.getInt("index") ?: MediaViewerStateHolder.activeViewerIndex
-                            val currentList = if (activeViewerList.isNotEmpty()) activeViewerList else com.example.ui.viewer.MediaViewerStateHolder.activeViewerList
-                            val shouldPlay = activeViewerAutoPlayVideo || com.example.ui.viewer.MediaViewerStateHolder.activeViewerAutoPlayVideo
+                            val currentList = if (activeViewerList.isNotEmpty()) activeViewerList else MediaViewerStateHolder.activeViewerList
+                            val shouldPlay = activeViewerAutoPlayVideo || MediaViewerStateHolder.activeViewerAutoPlayVideo
                             MediaViewerScreen(
                                 mediaList = currentList,
                                 initialIndex = indexArg,
@@ -246,19 +216,14 @@ class MainActivity : ComponentActivity() {
                                 storageUsageViewModel = storageUsageViewModel,
                                 onNavigateToStorageUsage = { navController.navigate(NavRoute.CloudStorageUsage.route) },
                                 onNavigateToSmartCollectionsSettings = { navController.navigate(NavRoute.SmartCollectionsSettings.route) },
-                                onNavigateToConnectedServices = { navController.navigate(NavRoute.ConnectedServices.route) },
                                 onBack = { navController.popBackStack() }
                             )
                         }
 
                         composable(NavRoute.ConnectedServices.route) {
-                            com.example.ui.settings.ConnectedServicesScreen(
-                                viewModel = connectedServicesViewModel,
-                                onBack = { navController.popBackStack() },
-                                onBrowseProvider = { providerId ->
-                                    cloudTabViewModel.setProviderFilter(providerId)
-                                    navController.popBackStack()
-                                }
+                            ConnectedServicesScreen(
+                                r2Repository = r2Repository,
+                                onBack = { navController.popBackStack() }
                             )
                         }
 
@@ -284,7 +249,7 @@ class MainActivity : ComponentActivity() {
                                 collectionId = collectionId,
                                 viewModel = smartCollectionsViewModel,
                                 onOpenViewer = { initialIndex, items ->
-                                    com.example.ui.viewer.MediaViewerStateHolder.setViewerData(items, initialIndex, false)
+                                    MediaViewerStateHolder.setViewerData(items, initialIndex, false)
                                     activeViewerList = items
                                     activeViewerIndex = initialIndex
                                     activeViewerAutoPlayVideo = false
@@ -341,7 +306,7 @@ class MainActivity : ComponentActivity() {
                                 viewModel = aiAssistantViewModel,
                                 onNavigateBack = { navController.popBackStack() },
                                 onOpenViewer = { initialIndex, items, autoPlayVideo ->
-                                    com.example.ui.viewer.MediaViewerStateHolder.setViewerData(items, initialIndex, autoPlayVideo)
+                                    MediaViewerStateHolder.setViewerData(items, initialIndex, autoPlayVideo)
                                     activeViewerList = items
                                     activeViewerIndex = initialIndex
                                     activeViewerAutoPlayVideo = autoPlayVideo

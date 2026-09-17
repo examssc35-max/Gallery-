@@ -1,4 +1,4 @@
-package com.example.domain.model.multicloud
+package com.example.domain.model
 
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Android
@@ -6,6 +6,7 @@ import androidx.compose.material.icons.filled.Archive
 import androidx.compose.material.icons.filled.Article
 import androidx.compose.material.icons.filled.Audiotrack
 import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.InsertDriveFile
 import androidx.compose.material.icons.filled.Videocam
@@ -14,6 +15,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import java.util.Locale
 
 enum class CloudFileType(val displayName: String, val categoryName: String) {
+    FOLDER("Folders", "Folders"),
     IMAGE("Photos", "Photos"),
     VIDEO("Videos", "Videos"),
     AUDIO("Audio", "Audio"),
@@ -25,7 +27,6 @@ enum class CloudFileType(val displayName: String, val categoryName: String) {
 }
 
 object CloudFileTypeResolver {
-
     private val PHOTO_EXTENSIONS = setOf(
         "jpg", "jpeg", "png", "webp", "gif", "heic", "heif", "avif",
         "bmp", "wbmp", "tif", "tiff", "raw", "dng", "cr2", "nef", "arw", "svg"
@@ -60,13 +61,8 @@ object CloudFileTypeResolver {
         "c", "cpp", "h", "hpp", "py", "sh", "sql", "ini", "conf", "properties"
     )
 
-    /**
-     * Resolves the CloudFileType category prioritizing the provider's MIME type,
-     * falling back to the filename extension when necessary.
-     */
     fun resolve(mimeType: String?, fileNameOrPath: String): CloudFileType {
         val lowerMime = mimeType?.lowercase(Locale.ROOT)?.trim().orEmpty()
-
         if (lowerMime.isNotEmpty() && lowerMime != "application/octet-stream") {
             when {
                 lowerMime.startsWith("image/") -> return CloudFileType.IMAGE
@@ -106,54 +102,9 @@ object CloudFileTypeResolver {
         }
     }
 
-    /**
-     * Resolves a sensible MIME type if the provider left it empty or generic octet-stream.
-     */
-    fun resolveMimeType(fileName: String, existingMime: String? = null): String {
-        if (!existingMime.isNullOrBlank() && existingMime != "application/octet-stream") {
-            return existingMime
-        }
-
-        val ext = fileName.substringAfterLast('.', "").lowercase(Locale.ROOT)
-        return when (ext) {
-            "jpg", "jpeg" -> "image/jpeg"
-            "png" -> "image/png"
-            "webp" -> "image/webp"
-            "gif" -> "image/gif"
-            "heic" -> "image/heic"
-            "svg" -> "image/svg+xml"
-            "mp4" -> "video/mp4"
-            "mov" -> "video/quicktime"
-            "mkv" -> "video/x-matroska"
-            "webm" -> "video/webm"
-            "mp3" -> "audio/mpeg"
-            "wav" -> "audio/wav"
-            "flac" -> "audio/flac"
-            "m4a" -> "audio/mp4"
-            "pdf" -> "application/pdf"
-            "doc" -> "application/msword"
-            "docx" -> "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-            "xls" -> "application/vnd.ms-excel"
-            "xlsx" -> "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            "ppt" -> "application/vnd.ms-powerpoint"
-            "pptx" -> "application/vnd.openxmlformats-officedocument.presentationml.presentation"
-            "zip" -> "application/zip"
-            "rar" -> "application/x-rar-compressed"
-            "7z" -> "application/x-7z-compressed"
-            "tar" -> "application/x-tar"
-            "gz" -> "application/gzip"
-            "apk" -> "application/vnd.android.package-archive"
-            "txt" -> "text/plain"
-            "json" -> "application/json"
-            "xml" -> "text/xml"
-            "csv" -> "text/csv"
-            "html" -> "text/html"
-            else -> "application/octet-stream"
-        }
-    }
-
     fun getIcon(fileType: CloudFileType): ImageVector {
         return when (fileType) {
+            CloudFileType.FOLDER -> Icons.Default.Folder
             CloudFileType.IMAGE -> Icons.Default.Image
             CloudFileType.VIDEO -> Icons.Default.Videocam
             CloudFileType.AUDIO -> Icons.Default.Audiotrack
@@ -167,6 +118,7 @@ object CloudFileTypeResolver {
 
     fun getIconColor(fileType: CloudFileType): Color {
         return when (fileType) {
+            CloudFileType.FOLDER -> Color(0xFFFFB300)
             CloudFileType.IMAGE -> Color(0xFF0288D1)
             CloudFileType.VIDEO -> Color(0xFFE53935)
             CloudFileType.AUDIO -> Color(0xFFFB8C00)

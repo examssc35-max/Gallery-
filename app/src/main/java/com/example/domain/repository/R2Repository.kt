@@ -10,6 +10,7 @@ import java.io.File
 data class CloudMediaPage(
     val items: List<MediaItem>,
     val folders: List<String>,
+    val r2Items: List<R2Item> = emptyList(),
     val nextContinuationToken: String? = null,
     val isTruncated: Boolean = false
 )
@@ -27,13 +28,22 @@ interface R2Repository {
     suspend fun listCloudMediaPage(
         prefix: String = "",
         continuationToken: String? = null,
-        pageSize: Int = 50
+        pageSize: Int = 60
     ): Result<CloudMediaPage>
     suspend fun getPresignedUrl(key: String, expiresSeconds: Long = 86400): Result<String>
     suspend fun uploadMedia(
         item: MediaItem,
         onProgress: (bytes: Long, total: Long) -> Unit = { _, _ -> }
     ): Result<String>
+    suspend fun uploadFile(
+        fileName: String,
+        prefix: String,
+        inputStream: java.io.InputStream,
+        contentLength: Long,
+        mimeType: String,
+        onProgress: (bytes: Long, total: Long) -> Unit = { _, _ -> }
+    ): Result<String>
+    suspend fun createFolder(folderKey: String): Result<Unit>
     suspend fun downloadObject(
         r2Item: R2Item,
         destinationFile: File,

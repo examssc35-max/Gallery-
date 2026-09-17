@@ -42,8 +42,32 @@ data class R2Item(
     val size: Long,
     val lastModified: Long,
     val isFolder: Boolean,
-    val mimeType: String = ""
-)
+    val mimeType: String = "",
+    val downloadUrl: String? = null
+) {
+    val fileType: CloudFileType
+        get() = if (isFolder) CloudFileType.FOLDER else CloudFileTypeResolver.resolve(mimeType, name)
+
+    val isMedia: Boolean
+        get() = !isFolder && (fileType == CloudFileType.IMAGE || fileType == CloudFileType.VIDEO)
+
+    fun toMediaItem(): MediaItem = MediaItem(
+        id = (key.hashCode().toLong() and 0x7FFFFFFFL) + 2_000_000_000L,
+        uriString = downloadUrl ?: "",
+        name = name,
+        path = key,
+        size = size,
+        dateAdded = if (lastModified > 0) lastModified / 1000 else System.currentTimeMillis() / 1000,
+        dateModified = if (lastModified > 0) lastModified else System.currentTimeMillis(),
+        mimeType = if (mimeType.isNotEmpty()) mimeType else if (fileType == CloudFileType.VIDEO) "video/mp4" else "image/jpeg",
+        isVideo = fileType == CloudFileType.VIDEO || mimeType.startsWith("video/"),
+        albumName = "Cloudflare R2",
+        isFavorite = false,
+        isCloud = true,
+        cloudKey = key,
+        backupStatus = BackupStatus.COMPLETED
+    )
+}
 
 data class StorageStats(
     val photoCount: Int = 0,

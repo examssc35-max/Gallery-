@@ -2,20 +2,19 @@ package com.example.ui.cloud
 
 import android.content.Context
 import android.media.MediaScannerConnection
+import android.net.Uri
 import android.os.Environment
+import android.provider.OpenableColumns
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.data.local.PreferencesManager
 import com.example.data.local.SortOrder
+import com.example.domain.model.CloudFileType
 import com.example.domain.model.MediaCategory
 import com.example.domain.model.MediaClassifier
 import com.example.domain.model.MediaItem
-import com.example.domain.model.multicloud.CloudFileType
-import com.example.domain.model.multicloud.CloudMediaItem
-import com.example.domain.model.multicloud.CloudOperation
-import com.example.domain.model.multicloud.ProviderConnectionInfo
+import com.example.domain.model.R2Item
 import com.example.domain.repository.BackupRepository
-import com.example.domain.repository.MultiCloudRepository
 import com.example.domain.repository.R2Repository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -36,37 +35,30 @@ data class CloudTabUiState(
     val isRefreshing: Boolean = false,
     val isLoadingMore: Boolean = false,
     val items: List<MediaItem> = emptyList(),
-    val cloudFiles: List<CloudMediaItem> = emptyList(),
+    val r2Files: List<R2Item> = emptyList(),
     val folders: List<String> = emptyList(),
     val currentPrefix: String = "",
     val searchQuery: String = "",
     val categoryFilter: MediaCategory? = null,
     val fileTypeFilter: CloudFileType? = null,
-    val providerFilter: String = "all", // "all", "r2", "google_photos", "google_drive", "onedrive", "dropbox"
-    val connectedProviders: List<ProviderConnectionInfo> = emptyList(),
     val sortOrder: SortOrder = SortOrder.DATE_DESC,
-    val selectedIds: Set<Long> = emptySet(),
+    val selectedKeys: Set<String> = emptySet(),
     val isSelectionMode: Boolean = false,
     val errorMessage: String? = null,
     val nextContinuationToken: String? = null,
     val hasMore: Boolean = false,
-    val isFlattenFolders: Boolean = false,
-    val isOffline: Boolean = false,
     val isGridView: Boolean = true,
-    val selectedFileForDetails: CloudMediaItem? = null
-) {
-    val totalUsedBytes: Long
-        get() = connectedProviders.mapNotNull { it.storageQuota?.usedBytes }.sum()
-
-    val totalCapacityBytes: Long
-        get() = connectedProviders.mapNotNull { it.storageQuota?.totalBytes }.sum()
-}
+    val selectedItemForDetails: R2Item? = null,
+    val isUploading: Boolean = false,
+    val uploadProgress: Float = 0f,
+    val isBatchDownloading: Boolean = false,
+    val batchDownloadProgress: Pair<Int, Int>? = null
+)
 
 class CloudTabViewModel(
     private val r2Repository: R2Repository,
     private val backupRepository: BackupRepository,
-    private val preferencesManager: PreferencesManager,
-    private val multiCloudRepository: MultiCloudRepository? = null
+    private val preferencesManager: PreferencesManager
 ) : ViewModel() {
 
     private val httpClient = OkHttpClient.Builder().build()
@@ -78,44 +70,24 @@ class CloudTabViewModel(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 3)
 
     init {
-        observeProviders()
+        observeR2Credentials()
         observeBackupRecords()
     }
 
-    private fun observeProviders() {
+    private fun observeR2Credentials() {
         viewModelScope.launch {
-            if (multiCloudRepository != null) {
-                multiCloudRepository.providersInfoFlow.collect { providersList ->
-                    val connected = providersList.filter { it.connectionState.isConnected }
+            r2Repository.credentialsFlow.collect { creds ->
+                val connected = creds.secretAccessKey.isNotEmpty() && creds.bucketName.isNotEmpty()
+                _uiState.value = _uiState.value.copy(isConnected = connected)
+                if (connected) {
+                    loadCloudMedia(reset = true)
+                } else {
                     _uiState.value = _uiState.value.copy(
-                        isConnected = connected.isNotEmpty(),
-                        connectedProviders = connected
+                        items = emptyList(),
+                        r2Files = emptyList(),
+                        folders = emptyList(),
+                        isLoading = false
                     )
-                    if (connected.isNotEmpty()) {
-                        loadCloudMedia(reset = true)
-                    } else {
-                        _uiState.value = _uiState.value.copy(
-                            items = emptyList(),
-                            cloudFiles = emptyList(),
-                            folders = emptyList(),
-                            isLoading = false
-                        )
-                    }
-                }
-            } else {
-                r2Repository.credentialsFlow.collect { creds ->
-                    val connected = creds.isVerified && creds.secretAccessKey.isNotEmpty() && creds.bucketName.isNotEmpty()
-                    _uiState.value = _uiState.value.copy(isConnected = connected)
-                    if (connected) {
-                        loadCloudMedia(reset = true)
-                    } else {
-                        _uiState.value = _uiState.value.copy(
-                            items = emptyList(),
-                            cloudFiles = emptyList(),
-                            folders = emptyList(),
-                            isLoading = false
-                        )
-                    }
                 }
             }
         }
@@ -131,17 +103,6 @@ class CloudTabViewModel(
         }
     }
 
-    fun setProviderFilter(providerId: String) {
-        _uiState.value = _uiState.value.copy(
-            providerFilter = providerId,
-            currentPrefix = "",
-            nextContinuationToken = null,
-            items = emptyList(),
-            cloudFiles = emptyList()
-        )
-        loadCloudMedia(reset = true)
-    }
-
     fun toggleViewMode() {
         _uiState.value = _uiState.value.copy(isGridView = !_uiState.value.isGridView)
     }
@@ -150,12 +111,16 @@ class CloudTabViewModel(
         _uiState.value = _uiState.value.copy(fileTypeFilter = type)
     }
 
-    fun openFileDetails(file: CloudMediaItem) {
-        _uiState.value = _uiState.value.copy(selectedFileForDetails = file)
+    fun setCategoryFilter(category: MediaCategory?) {
+        _uiState.value = _uiState.value.copy(categoryFilter = category)
     }
 
-    fun closeFileDetails() {
-        _uiState.value = _uiState.value.copy(selectedFileForDetails = null)
+    fun openItemDetails(item: R2Item) {
+        _uiState.value = _uiState.value.copy(selectedItemForDetails = item)
+    }
+
+    fun closeItemDetails() {
+        _uiState.value = _uiState.value.copy(selectedItemForDetails = null)
     }
 
     fun loadCloudMedia(reset: Boolean = true, silent: Boolean = false) {
@@ -170,101 +135,41 @@ class CloudTabViewModel(
                 _uiState.value = _uiState.value.copy(isLoadingMore = true)
             }
 
-            val prefix = if (_uiState.value.isFlattenFolders) "" else _uiState.value.currentPrefix
+            val prefix = _uiState.value.currentPrefix
             val token = if (reset) null else _uiState.value.nextContinuationToken
 
-            if (multiCloudRepository != null) {
-                val filter = _uiState.value.providerFilter.takeIf { it != "all" }
-                val result = multiCloudRepository.listMedia(
-                    providerFilter = filter,
-                    folderId = prefix.takeIf { it.isNotEmpty() },
-                    continuationToken = token,
-                    pageSize = 60
+            val result = r2Repository.listCloudMediaPage(
+                prefix = prefix,
+                continuationToken = token,
+                pageSize = 60
+            )
+
+            if (result.isSuccess) {
+                val page = result.getOrThrow()
+                val newFiles = if (reset) page.r2Items else (_uiState.value.r2Files + page.r2Items).distinctBy { it.key }
+                val newItems = if (reset) page.items else (_uiState.value.items + page.items).distinctBy { it.path }
+                val newFolders = if (reset) page.folders else (_uiState.value.folders + page.folders).distinct()
+
+                _uiState.value = _uiState.value.copy(
+                    isLoading = false,
+                    isRefreshing = false,
+                    isLoadingMore = false,
+                    r2Files = newFiles,
+                    items = newItems,
+                    folders = newFolders,
+                    nextContinuationToken = page.nextContinuationToken,
+                    hasMore = page.isTruncated && !page.nextContinuationToken.isNullOrBlank(),
+                    errorMessage = null
                 )
-
-                if (result.isSuccess) {
-                    val page = result.getOrThrow()
-                    val newCloudFiles = if (reset) page.items else (_uiState.value.cloudFiles + page.items).distinctBy { it.remoteId }
-                    val mappedItems = newCloudFiles.filter { !it.isFolder }.map { it.toMediaItem() }
-                    val newFolders = if (reset) page.folders else (_uiState.value.folders + page.folders).distinct()
-
-                    _uiState.value = _uiState.value.copy(
-                        isLoading = false,
-                        isRefreshing = false,
-                        isLoadingMore = false,
-                        cloudFiles = newCloudFiles,
-                        items = mappedItems,
-                        folders = newFolders,
-                        nextContinuationToken = page.nextContinuationToken,
-                        hasMore = page.isTruncated && !page.nextContinuationToken.isNullOrBlank(),
-                        errorMessage = null,
-                        isOffline = false
-                    )
-                } else {
-                    _uiState.value = _uiState.value.copy(
-                        isLoading = false,
-                        isRefreshing = false,
-                        isLoadingMore = false,
-                        errorMessage = result.exceptionOrNull()?.message ?: "Failed to list cloud files"
-                    )
-                }
             } else {
-                val result = r2Repository.listCloudMediaPage(
-                    prefix = prefix,
-                    continuationToken = token,
-                    pageSize = 60
+                _uiState.value = _uiState.value.copy(
+                    isLoading = false,
+                    isRefreshing = false,
+                    isLoadingMore = false,
+                    errorMessage = result.exceptionOrNull()?.message ?: "Failed to load files from Cloudflare R2"
                 )
-
-                if (result.isSuccess) {
-                    val page = result.getOrThrow()
-                    val newItems = if (reset) page.items else (_uiState.value.items + page.items).distinctBy { it.path }
-                    val newFolders = if (reset) page.folders else (_uiState.value.folders + page.folders).distinct()
-
-                    val mappedCloudFiles = newItems.map { it.toCloudMediaItem() }
-
-                    _uiState.value = _uiState.value.copy(
-                        isLoading = false,
-                        isRefreshing = false,
-                        isLoadingMore = false,
-                        items = newItems,
-                        cloudFiles = mappedCloudFiles,
-                        folders = newFolders,
-                        nextContinuationToken = page.nextContinuationToken,
-                        hasMore = page.isTruncated && !page.nextContinuationToken.isNullOrBlank(),
-                        errorMessage = null,
-                        isOffline = false
-                    )
-                } else {
-                    _uiState.value = _uiState.value.copy(
-                        isLoading = false,
-                        isRefreshing = false,
-                        isLoadingMore = false,
-                        errorMessage = result.exceptionOrNull()?.message ?: "Failed to list cloud files"
-                    )
-                }
             }
         }
-    }
-
-    private fun MediaItem.toCloudMediaItem(): CloudMediaItem {
-        return CloudMediaItem(
-            providerId = "r2",
-            providerName = "Cloudflare R2",
-            remoteId = cloudKey ?: path,
-            name = name,
-            mimeType = mimeType,
-            size = size,
-            createdAt = dateAdded,
-            modifiedAt = dateModified,
-            thumbnailUrl = uriString,
-            downloadUrl = uriString,
-            isVideo = isVideo,
-            durationMs = durationMs,
-            width = width,
-            height = height,
-            isFolder = false,
-            folderPath = path
-        )
     }
 
     fun refresh() {
@@ -282,13 +187,12 @@ class CloudTabViewModel(
         val normalized = if (prefix.isNotEmpty() && !prefix.endsWith("/")) "$prefix/" else prefix
         _uiState.value = _uiState.value.copy(
             currentPrefix = normalized,
-            isFlattenFolders = false,
             items = emptyList(),
-            cloudFiles = emptyList(),
+            r2Files = emptyList(),
             folders = emptyList(),
             nextContinuationToken = null,
             hasMore = false,
-            selectedIds = emptySet(),
+            selectedKeys = emptySet(),
             isSelectionMode = false
         )
         loadCloudMedia(reset = true)
@@ -307,11 +211,11 @@ class CloudTabViewModel(
         _uiState.value = _uiState.value.copy(
             currentPrefix = parent,
             items = emptyList(),
-            cloudFiles = emptyList(),
+            r2Files = emptyList(),
             folders = emptyList(),
             nextContinuationToken = null,
             hasMore = false,
-            selectedIds = emptySet(),
+            selectedKeys = emptySet(),
             isSelectionMode = false
         )
         loadCloudMedia(reset = true)
@@ -319,29 +223,15 @@ class CloudTabViewModel(
 
     fun getBreadcrumbs(): List<Pair<String, String>> {
         val prefix = _uiState.value.currentPrefix.trim('/')
-        if (prefix.isEmpty()) return listOf("Root" to "")
+        if (prefix.isEmpty()) return listOf("Bucket Root" to "")
         val parts = prefix.split('/')
-        val result = mutableListOf("Root" to "")
+        val result = mutableListOf("Bucket Root" to "")
         var accumulated = ""
         for (part in parts) {
             accumulated = if (accumulated.isEmpty()) part else "$accumulated/$part"
             result.add(part to "$accumulated/")
         }
         return result
-    }
-
-    fun toggleFlattenFolders() {
-        val nextFlatten = !_uiState.value.isFlattenFolders
-        _uiState.value = _uiState.value.copy(
-            isFlattenFolders = nextFlatten,
-            currentPrefix = if (nextFlatten) "" else _uiState.value.currentPrefix,
-            items = emptyList(),
-            cloudFiles = emptyList(),
-            folders = emptyList(),
-            nextContinuationToken = null,
-            hasMore = false
-        )
-        loadCloudMedia(reset = true)
     }
 
     fun setSearchQuery(query: String) {
@@ -358,135 +248,254 @@ class CloudTabViewModel(
         }
     }
 
-    fun toggleSelection(id: Long) {
-        val current = _uiState.value.selectedIds
-        val newSelection = if (id in current) current - id else current + id
+    fun toggleSelection(key: String) {
+        val current = _uiState.value.selectedKeys
+        val newSelection = if (key in current) current - key else current + key
         _uiState.value = _uiState.value.copy(
-            selectedIds = newSelection,
+            selectedKeys = newSelection,
             isSelectionMode = newSelection.isNotEmpty()
         )
     }
 
-    fun selectAll(items: List<MediaItem>) {
+    fun selectAll(files: List<R2Item>) {
         _uiState.value = _uiState.value.copy(
-            selectedIds = items.map { it.id }.toSet(),
+            selectedKeys = files.filter { !it.isFolder }.map { it.key }.toSet(),
             isSelectionMode = true
         )
     }
 
     fun clearSelection() {
         _uiState.value = _uiState.value.copy(
-            selectedIds = emptySet(),
+            selectedKeys = emptySet(),
             isSelectionMode = false
         )
     }
 
     fun onItemDeletedLocally(item: MediaItem) {
+        val key = item.cloudKey ?: item.path
         _uiState.value = _uiState.value.copy(
-            items = _uiState.value.items.filter { it.id != item.id && it.cloudKey != item.cloudKey },
-            cloudFiles = _uiState.value.cloudFiles.filter { it.remoteId != (item.cloudKey ?: item.path) },
-            selectedIds = _uiState.value.selectedIds - item.id
+            items = _uiState.value.items.filter { it.id != item.id && it.cloudKey != key },
+            r2Files = _uiState.value.r2Files.filter { it.key != key },
+            selectedKeys = _uiState.value.selectedKeys - key
         )
     }
 
-    private fun resolveProviderId(item: MediaItem): String {
-        return when (item.albumName?.lowercase()) {
-            "google photos" -> "google_photos"
-            "google drive" -> "google_drive"
-            "microsoft onedrive", "onedrive" -> "onedrive"
-            "dropbox" -> "dropbox"
-            else -> "r2"
-        }
-    }
-
-    fun deleteItem(item: MediaItem, onComplete: (Boolean) -> Unit = {}) {
+    fun deleteSingleItem(item: R2Item, onComplete: (Boolean) -> Unit = {}) {
         viewModelScope.launch {
-            val provId = resolveProviderId(item)
-            val provider = multiCloudRepository?.getProvider(provId)
-            if (provider != null && !provider.capabilities.canDelete) {
-                val reason = provider.capabilities.getUnsupportedReason(CloudOperation.DELETE, provider.displayName)
-                _uiState.value = _uiState.value.copy(errorMessage = reason)
-                onComplete(false)
-                return@launch
-            }
-
-            val key = item.cloudKey ?: item.path
-            val result = if (multiCloudRepository != null) {
-                multiCloudRepository.delete(provId, key)
-            } else {
-                r2Repository.deleteObject(key)
-            }
-
+            val result = r2Repository.deleteObject(item.key)
             if (result.isSuccess) {
-                onItemDeletedLocally(item)
+                _uiState.value = _uiState.value.copy(
+                    r2Files = _uiState.value.r2Files.filter { it.key != item.key },
+                    items = _uiState.value.items.filter { (it.cloudKey ?: it.path) != item.key },
+                    selectedKeys = _uiState.value.selectedKeys - item.key
+                )
                 onComplete(true)
             } else {
-                val err = result.exceptionOrNull()?.message ?: "Failed to delete item"
+                val err = result.exceptionOrNull()?.message ?: "Failed to delete item from R2"
                 _uiState.value = _uiState.value.copy(errorMessage = err)
                 onComplete(false)
             }
         }
     }
 
-    fun deleteSelected(items: List<MediaItem>, onComplete: (Int) -> Unit = {}) {
+    fun deleteSelected(onComplete: (Int) -> Unit = {}) {
         viewModelScope.launch {
+            val keys = _uiState.value.selectedKeys.toList()
             var count = 0
-            val idsToRemove = mutableSetOf<Long>()
-            var blockedCount = 0
+            val keysToRemove = mutableSetOf<String>()
 
-            for (item in items) {
-                val provId = resolveProviderId(item)
-                val provider = multiCloudRepository?.getProvider(provId)
-                if (provider != null && !provider.capabilities.canDelete) {
-                    blockedCount++
-                    continue
-                }
-
-                val key = item.cloudKey ?: item.path
-                val result = if (multiCloudRepository != null) {
-                    multiCloudRepository.delete(provId, key)
-                } else {
-                    r2Repository.deleteObject(key)
-                }
-
+            for (key in keys) {
+                val result = r2Repository.deleteObject(key)
                 if (result.isSuccess) {
                     count++
-                    idsToRemove.add(item.id)
+                    keysToRemove.add(key)
                 }
-            }
-
-            if (blockedCount > 0) {
-                _uiState.value = _uiState.value.copy(
-                    errorMessage = "$blockedCount item(s) could not be deleted because this provider does not permit deletion via API."
-                )
             }
 
             _uiState.value = _uiState.value.copy(
-                items = _uiState.value.items.filter { it.id !in idsToRemove },
-                cloudFiles = _uiState.value.cloudFiles.filter { it.remoteId !in items.mapNotNull { m -> m.cloudKey } },
-                selectedIds = emptySet(),
+                r2Files = _uiState.value.r2Files.filter { it.key !in keysToRemove },
+                items = _uiState.value.items.filter { (it.cloudKey ?: it.path) !in keysToRemove },
+                selectedKeys = emptySet(),
                 isSelectionMode = false
             )
             onComplete(count)
         }
     }
 
-    fun setCategoryFilter(category: MediaCategory?) {
-        _uiState.value = _uiState.value.copy(categoryFilter = category)
+    fun createFolder(folderName: String, onResult: (Boolean, String?) -> Unit) {
+        viewModelScope.launch {
+            val cleanName = folderName.trim().trim('/')
+            if (cleanName.isEmpty()) {
+                onResult(false, "Folder name cannot be empty")
+                return@launch
+            }
+            val prefix = _uiState.value.currentPrefix
+            val folderKey = if (prefix.isEmpty()) "$cleanName/" else "${prefix.trimEnd('/')}/$cleanName/"
+
+            val result = r2Repository.createFolder(folderKey)
+            if (result.isSuccess) {
+                loadCloudMedia(reset = true, silent = true)
+                onResult(true, null)
+            } else {
+                onResult(false, result.exceptionOrNull()?.message ?: "Failed to create folder")
+            }
+        }
+    }
+
+    fun uploadFileFromUri(context: Context, uri: Uri, onResult: (Boolean, String?) -> Unit) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                var fileName = "upload_${System.currentTimeMillis()}"
+                var size = -1L
+                context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+                    if (cursor.moveToFirst()) {
+                        val nameIdx = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                        val sizeIdx = cursor.getColumnIndex(OpenableColumns.SIZE)
+                        if (nameIdx >= 0) {
+                            val name = cursor.getString(nameIdx)
+                            if (!name.isNullOrBlank()) fileName = name
+                        }
+                        if (sizeIdx >= 0) size = cursor.getLong(sizeIdx)
+                    }
+                }
+
+                val mimeType = context.contentResolver.getType(uri) ?: "application/octet-stream"
+                val inputStream = context.contentResolver.openInputStream(uri)
+                    ?: throw IllegalStateException("Cannot open input stream for file")
+
+                val totalSize = if (size > 0) size else inputStream.available().toLong()
+
+                withContext(Dispatchers.Main) {
+                    _uiState.value = _uiState.value.copy(isUploading = true, uploadProgress = 0f)
+                }
+
+                val uploadResult = r2Repository.uploadFile(
+                    fileName = fileName,
+                    prefix = _uiState.value.currentPrefix,
+                    inputStream = inputStream,
+                    contentLength = totalSize,
+                    mimeType = mimeType,
+                    onProgress = { bytes, total ->
+                        val prog = if (total > 0) bytes.toFloat() / total.toFloat() else 0f
+                        _uiState.value = _uiState.value.copy(uploadProgress = prog)
+                    }
+                )
+
+                withContext(Dispatchers.Main) {
+                    _uiState.value = _uiState.value.copy(isUploading = false, uploadProgress = 0f)
+                    if (uploadResult.isSuccess) {
+                        loadCloudMedia(reset = true, silent = true)
+                        onResult(true, null)
+                    } else {
+                        onResult(false, uploadResult.exceptionOrNull()?.message ?: "Upload failed")
+                    }
+                }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    _uiState.value = _uiState.value.copy(isUploading = false, uploadProgress = 0f)
+                    onResult(false, e.localizedMessage ?: "Failed to upload file")
+                }
+            }
+        }
+    }
+
+    fun downloadItem(
+        context: Context,
+        item: R2Item,
+        onResult: (Boolean, String?) -> Unit
+    ) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val presignedUrl = item.downloadUrl ?: try {
+                r2Repository.getPresignedUrl(item.key).getOrNull()
+            } catch (_: Exception) {
+                null
+            }
+
+            if (presignedUrl.isNullOrBlank()) {
+                withContext(Dispatchers.Main) {
+                    onResult(false, "No download URL available for ${item.name}")
+                }
+                return@launch
+            }
+
+            try {
+                val req = Request.Builder().url(presignedUrl).build()
+                val resp = httpClient.newCall(req).execute()
+                if (!resp.isSuccessful) {
+                    withContext(Dispatchers.Main) {
+                        onResult(false, "Download failed with HTTP ${resp.code}")
+                    }
+                    return@launch
+                }
+
+                val downloadDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+                if (!downloadDir.exists()) downloadDir.mkdirs()
+
+                val destFile = File(downloadDir, item.name)
+                resp.body?.byteStream()?.use { input ->
+                    FileOutputStream(destFile).use { output ->
+                        input.copyTo(output)
+                    }
+                }
+
+                MediaScannerConnection.scanFile(
+                    context,
+                    arrayOf(destFile.absolutePath),
+                    arrayOf(item.mimeType.ifEmpty { null }),
+                    null
+                )
+
+                withContext(Dispatchers.Main) {
+                    onResult(true, destFile.absolutePath)
+                }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    onResult(false, e.localizedMessage ?: "Download failed")
+                }
+            }
+        }
+    }
+
+    fun downloadSelected(context: Context, onComplete: (Int) -> Unit) {
+        viewModelScope.launch {
+            val selectedItems = _uiState.value.r2Files.filter { it.key in _uiState.value.selectedKeys && !it.isFolder }
+            if (selectedItems.isEmpty()) {
+                onComplete(0)
+                return@launch
+            }
+
+            _uiState.value = _uiState.value.copy(
+                isBatchDownloading = true,
+                batchDownloadProgress = 0 to selectedItems.size
+            )
+
+            var successCount = 0
+            for ((index, item) in selectedItems.withIndex()) {
+                _uiState.value = _uiState.value.copy(
+                    batchDownloadProgress = (index + 1) to selectedItems.size
+                )
+                downloadItem(context, item) { ok, _ ->
+                    if (ok) successCount++
+                }
+            }
+
+            _uiState.value = _uiState.value.copy(
+                isBatchDownloading = false,
+                batchDownloadProgress = null,
+                selectedKeys = emptySet(),
+                isSelectionMode = false
+            )
+            onComplete(successCount)
+        }
     }
 
     fun clearErrorMessage() {
         _uiState.value = _uiState.value.copy(errorMessage = null)
     }
 
-    fun getFilteredCloudFiles(): List<CloudMediaItem> {
+    fun getFilteredFiles(): List<R2Item> {
         val state = _uiState.value
-        var list = state.cloudFiles
-
-        // Provider filter if needed
-        if (state.providerFilter != "all") {
-            list = list.filter { it.providerId == state.providerFilter }
-        }
+        var list = state.r2Files
 
         // File type filter
         if (state.fileTypeFilter != null) {
@@ -496,7 +505,7 @@ class CloudTabViewModel(
         // Category filter if active
         if (state.categoryFilter != null) {
             list = list.filter {
-                it.isFolder || MediaClassifier.classify(it.remoteId, it.mimeType) == state.categoryFilter
+                it.isFolder || MediaClassifier.classify(it.key, it.mimeType) == state.categoryFilter
             }
         }
 
@@ -505,22 +514,22 @@ class CloudTabViewModel(
             list = list.filter { it.name.contains(state.searchQuery, ignoreCase = true) }
         }
 
-        // Sort: Always keep folders on top (unless flattened), then sort by selected order
+        // Keep folders first, then sort files
         val folders = list.filter { it.isFolder }.sortedBy { it.name.lowercase() }
-        val nonFolders = list.filter { !it.isFolder }
+        val files = list.filter { !it.isFolder }
 
-        val sortedNonFolders = when (state.sortOrder) {
-            SortOrder.DATE_DESC -> nonFolders.sortedByDescending { it.modifiedAt }
-            SortOrder.DATE_ASC -> nonFolders.sortedBy { it.modifiedAt }
-            SortOrder.NAME_ASC -> nonFolders.sortedBy { it.name.lowercase() }
-            SortOrder.NAME_DESC -> nonFolders.sortedByDescending { it.name.lowercase() }
-            SortOrder.SIZE_DESC -> nonFolders.sortedByDescending { it.size }
+        val sortedFiles = when (state.sortOrder) {
+            SortOrder.DATE_DESC -> files.sortedByDescending { it.lastModified }
+            SortOrder.DATE_ASC -> files.sortedBy { it.lastModified }
+            SortOrder.NAME_ASC -> files.sortedBy { it.name.lowercase() }
+            SortOrder.NAME_DESC -> files.sortedByDescending { it.name.lowercase() }
+            SortOrder.SIZE_DESC -> files.sortedByDescending { it.size }
         }
 
-        return if (state.isFlattenFolders) sortedNonFolders else folders + sortedNonFolders
+        return folders + sortedFiles
     }
 
-    fun getFilteredItems(): List<MediaItem> {
+    fun getFilteredMediaItems(): List<MediaItem> {
         val state = _uiState.value
         var list = state.items
 
@@ -540,58 +549,6 @@ class CloudTabViewModel(
             SortOrder.NAME_ASC -> list.sortedBy { it.name.lowercase() }
             SortOrder.NAME_DESC -> list.sortedByDescending { it.name.lowercase() }
             SortOrder.SIZE_DESC -> list.sortedByDescending { it.size }
-        }
-    }
-
-    fun downloadFile(
-        context: Context,
-        file: CloudMediaItem,
-        onResult: (Boolean, String?) -> Unit
-    ) {
-        viewModelScope.launch(Dispatchers.IO) {
-            val url = file.downloadUrl ?: file.thumbnailUrl
-            if (url.isNullOrBlank()) {
-                withContext(Dispatchers.Main) {
-                    onResult(false, "No download URL available for this file")
-                }
-                return@launch
-            }
-
-            try {
-                val req = Request.Builder().url(url).build()
-                val resp = httpClient.newCall(req).execute()
-                if (!resp.isSuccessful) {
-                    withContext(Dispatchers.Main) {
-                        onResult(false, "Download failed with code ${resp.code}")
-                    }
-                    return@launch
-                }
-
-                val downloadDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
-                if (!downloadDir.exists()) downloadDir.mkdirs()
-
-                val destFile = File(downloadDir, file.name)
-                resp.body?.byteStream()?.use { input ->
-                    FileOutputStream(destFile).use { output ->
-                        input.copyTo(output)
-                    }
-                }
-
-                MediaScannerConnection.scanFile(
-                    context,
-                    arrayOf(destFile.absolutePath),
-                    arrayOf(file.mimeType),
-                    null
-                )
-
-                withContext(Dispatchers.Main) {
-                    onResult(true, destFile.absolutePath)
-                }
-            } catch (e: Exception) {
-                withContext(Dispatchers.Main) {
-                    onResult(false, e.localizedMessage ?: "Download failed")
-                }
-            }
         }
     }
 }

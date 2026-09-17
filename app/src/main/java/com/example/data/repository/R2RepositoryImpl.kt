@@ -89,6 +89,7 @@ class R2RepositoryImpl(
         listResult.map { r2Page ->
             val folders = mutableListOf<String>()
             val mediaItems = mutableListOf<MediaItem>()
+            val allR2Items = mutableListOf<R2Item>()
 
             for (r2Item in r2Page.items) {
                 if (r2Item.isFolder) {
@@ -96,50 +97,109 @@ class R2RepositoryImpl(
                     if (folderName.isNotEmpty()) {
                         folders.add(r2Item.key)
                     }
+                    allR2Items.add(r2Item)
                 } else {
                     val name = r2Item.name
-                    val isVideo = r2Item.mimeType.startsWith("video/") ||
-                            name.endsWith(".mp4", ignoreCase = true) ||
-                            name.endsWith(".mov", ignoreCase = true) ||
-                            name.endsWith(".mkv", ignoreCase = true) ||
-                            name.endsWith(".webm", ignoreCase = true) ||
-                            name.endsWith(".3gp", ignoreCase = true)
-
                     val presignedUrl = try {
                         r2Client.getPresignedUrl(creds, r2Item.key, expiresSeconds = 86400)
                     } catch (_: Exception) {
                         ""
                     }
 
-                    val stableId = (r2Item.key.hashCode().toLong() and 0x7FFFFFFFL) + 2_000_000_000L
+                    val enrichedItem = r2Item.copy(downloadUrl = presignedUrl.ifEmpty { null })
+                    allR2Items.add(enrichedItem)
 
-                    mediaItems.add(
-                        MediaItem(
-                            id = stableId,
-                            uriString = presignedUrl,
-                            name = name,
-                            path = r2Item.key,
-                            size = r2Item.size,
-                            dateAdded = if (r2Item.lastModified > 0) r2Item.lastModified / 1000 else System.currentTimeMillis() / 1000,
-                            dateModified = if (r2Item.lastModified > 0) r2Item.lastModified else System.currentTimeMillis(),
-                            mimeType = if (r2Item.mimeType.isNotEmpty()) r2Item.mimeType else if (isVideo) "video/mp4" else "image/jpeg",
-                            isVideo = isVideo,
-                            albumName = if (prefix.isEmpty()) "Cloud" else prefix.trimEnd('/'),
-                            isFavorite = false,
-                            isCloud = true,
-                            cloudKey = r2Item.key
+                    val isVideo = enrichedItem.fileType == com.example.domain.model.CloudFileType.VIDEO ||
+                            r2Item.mimeType.startsWith("video/") ||
+                            name.endsWith(".mp4", ignoreCase = true) ||
+                            name.endsWith(".mov", ignoreCase = true) ||
+                            name.endsWith(".mkv", ignoreCase = true) ||
+                            name.endsWith(".webm", ignoreCase = true) ||
+                            name.endsWith(".3gp", ignoreCase = true)
+
+                    val isImage = enrichedItem.fileType == com.example.domain.model.CloudFileType.IMAGE ||
+                            r2Item.mimeType.startsWith("image/")
+
+                    if (isImage || isVideo) {
+                        val stableId = (r2Item.key.hashCode().toLong() and 0x7FFFFFFFL) + 2_000_000_000L
+                        mediaItems.add(
+                            MediaItem(
+                                id = stableId,
+                                uriString = presignedUrl,
+                                name = name,
+                                path = r2Item.key,
+                                size = r2Item.size,
+                                dateAdded = if (r2Item.lastModified > 0) r2Item.lastModified / 1000 else System.currentTimeMillis() / 1000,
+                                dateModified = if (r2Item.lastModified > 0) r2Item.lastModified else System.currentTimeMillis(),
+                                mimeType = if (r2Item.mimeType.isNotEmpty()) r2Item.mimeType else if (isVideo) "video/mp4" else "image/jpeg",
+                                isVideo = isVideo,
+                                albumName = if (prefix.isEmpty()) "Cloud" else prefix.trimEnd('/'),
+                                isFavorite = false,
+                                isCloud = true,
+                                cloudKey = r2Item.key
+                            )
                         )
-                    )
+                    }
                 }
             }
 
             CloudMediaPage(
                 items = mediaItems,
                 folders = folders,
+                r2Items = allR2Items,
                 nextContinuationToken = r2Page.nextContinuationToken,
                 isTruncated = r2Page.isTruncated
             )
         }
+    }
+
+    override suspend fun uploadFile(
+        fileName: String,
+        prefix: String,
+        inputStream: java.io.InputStream,
+        contentLength: Long,
+        mimeType: String,
+        onProgress: (bytes: Long, total: Long) -> Unit
+    ): Result<String> = withContext(Dispatchers.IO) {
+        val creds = getCredentials()
+        if (creds.secretAccessKey.isEmpty() || creds.bucketName.isEmpty()) {
+            return@withContext Result.failure(IllegalStateException("Cloudflare R2 credentials missing"))
+        }
+        val cleanPrefix = prefix.trim().trimStart('/')
+        val key = if (cleanPrefix.isEmpty()) fileName else "${cleanPrefix.trimEnd('/')}/$fileName"
+        val result = r2Client.uploadStream(
+            credentials = creds,
+            key = key,
+            inputStream = inputStream,
+            contentLength = contentLength,
+            mimeType = mimeType,
+            onProgress = onProgress
+        )
+        if (result.isSuccess) {
+            val category = MediaClassifier.classify(fileName)
+            preferencesManager.updateStorageUsageIncrement(
+                bytesDelta = contentLength,
+                category = category,
+                countDelta = 1
+            )
+        }
+        result.map { key }
+    }
+
+    override suspend fun createFolder(folderKey: String): Result<Unit> = withContext(Dispatchers.IO) {
+        val creds = getCredentials()
+        if (creds.secretAccessKey.isEmpty() || creds.bucketName.isEmpty()) {
+            return@withContext Result.failure(IllegalStateException("Cloudflare R2 credentials missing"))
+        }
+        val clean = folderKey.trim().trimStart('/')
+        val key = if (clean.endsWith("/")) clean else "$clean/"
+        r2Client.uploadStream(
+            credentials = creds,
+            key = key,
+            inputStream = java.io.ByteArrayInputStream(ByteArray(0)),
+            contentLength = 0L,
+            mimeType = "application/x-directory"
+        ).map { }
     }
 
     override suspend fun getPresignedUrl(key: String, expiresSeconds: Long): Result<String> = withContext(Dispatchers.IO) {
