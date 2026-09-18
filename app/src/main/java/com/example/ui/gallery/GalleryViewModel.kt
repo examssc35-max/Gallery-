@@ -183,6 +183,14 @@ class GalleryViewModel(
         )
     }
 
+    fun toggleSelectionMode() {
+        val next = !_uiState.value.isSelectionMode
+        _uiState.value = _uiState.value.copy(
+            isSelectionMode = next,
+            selectedIds = if (!next) emptySet() else _uiState.value.selectedIds
+        )
+    }
+
     fun selectAll(items: List<MediaItem>) {
         _uiState.value = _uiState.value.copy(
             selectedIds = items.map { it.id }.toSet(),

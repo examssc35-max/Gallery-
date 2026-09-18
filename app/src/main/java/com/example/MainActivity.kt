@@ -44,6 +44,7 @@ import com.example.ui.storage.CloudStorageUsageScreen
 import com.example.ui.storage.StorageAnalyzerScreen
 import com.example.ui.storage.StorageUsageViewModel
 import com.example.ui.theme.MyApplicationTheme
+import com.example.ui.settings.ThemeSettingsScreen
 import com.example.ui.trash.TrashScreen
 import com.example.ui.viewer.MediaViewerScreen
 import com.example.ui.viewer.MediaViewerStateHolder
@@ -216,6 +217,15 @@ class MainActivity : ComponentActivity() {
                                 storageUsageViewModel = storageUsageViewModel,
                                 onNavigateToStorageUsage = { navController.navigate(NavRoute.CloudStorageUsage.route) },
                                 onNavigateToSmartCollectionsSettings = { navController.navigate(NavRoute.SmartCollectionsSettings.route) },
+                                onNavigateToTheme = { navController.navigate(NavRoute.ThemeSettings.route) },
+                                onNavigateToCloudStorage = { navController.navigate(NavRoute.ConnectedServices.route) },
+                                onBack = { navController.popBackStack() }
+                            )
+                        }
+
+                        composable(NavRoute.ThemeSettings.route) {
+                            ThemeSettingsScreen(
+                                preferencesManager = preferencesManager,
                                 onBack = { navController.popBackStack() }
                             )
                         }

@@ -49,6 +49,47 @@ enum class AppThemeMode {
     DARK
 }
 
+enum class ThemeAccent(val label: String, val hexColor: Long) {
+    BLUE("Blue", 0xFF1976D2),
+    PURPLE("Purple", 0xFF7C4DFF),
+    MAGENTA("Magenta", 0xFFE91E63),
+    CORAL("Coral", 0xFFFF5722),
+    EMERALD("Emerald", 0xFF10B981),
+    TEAL("Teal", 0xFF00897B),
+    NAVY("Navy", 0xFF37474F),
+    AMBER("Amber", 0xFFFFA000)
+}
+
+enum class BackgroundStyle(val label: String) {
+    DEFAULT("Default"),
+    GLASS("Glass"),
+    GRADIENT("Gradient"),
+    NATURE("Nature"),
+    MINIMAL("Minimal"),
+    BLUR("Blur"),
+    DARK("Dark"),
+    CHERRY_BLOSSOM("Cherry Blossom")
+}
+
+enum class ThemePreset(
+    val label: String,
+    val mode: AppThemeMode,
+    val accent: ThemeAccent,
+    val bgStyle: BackgroundStyle
+) {
+    DEFAULT("Default", AppThemeMode.SYSTEM, ThemeAccent.BLUE, BackgroundStyle.DEFAULT),
+    LIGHT("Light", AppThemeMode.LIGHT, ThemeAccent.BLUE, BackgroundStyle.DEFAULT),
+    DARK("Dark", AppThemeMode.DARK, ThemeAccent.BLUE, BackgroundStyle.DARK),
+    OCEAN("Ocean", AppThemeMode.DARK, ThemeAccent.TEAL, BackgroundStyle.GRADIENT),
+    FOREST("Forest", AppThemeMode.DARK, ThemeAccent.EMERALD, BackgroundStyle.NATURE),
+    SUNSET("Sunset", AppThemeMode.DARK, ThemeAccent.CORAL, BackgroundStyle.GRADIENT),
+    PURPLE("Purple", AppThemeMode.DARK, ThemeAccent.PURPLE, BackgroundStyle.BLUR),
+    MINIMAL("Minimal", AppThemeMode.LIGHT, ThemeAccent.NAVY, BackgroundStyle.MINIMAL),
+    GLASS("Glass", AppThemeMode.DARK, ThemeAccent.BLUE, BackgroundStyle.GLASS),
+    NIGHT("Night", AppThemeMode.DARK, ThemeAccent.BLUE, BackgroundStyle.DARK),
+    CHERRY_BLOSSOM("Cherry Blossom", AppThemeMode.LIGHT, ThemeAccent.MAGENTA, BackgroundStyle.CHERRY_BLOSSOM)
+}
+
 class PreferencesManager(
     private val context: Context,
     private val keystoreManager: KeystoreManager = KeystoreManager()
@@ -57,6 +98,12 @@ class PreferencesManager(
         val KEY_GRID_COLUMNS = intPreferencesKey("grid_columns")
         val KEY_SORT_ORDER = stringPreferencesKey("sort_order")
         val KEY_THEME_MODE = stringPreferencesKey("theme_mode")
+        val KEY_THEME_ACCENT = stringPreferencesKey("theme_accent")
+        val KEY_BACKGROUND_STYLE = stringPreferencesKey("background_style")
+        val KEY_THEME_PRESET = stringPreferencesKey("theme_preset")
+        val KEY_USE_DYNAMIC_COLORS = booleanPreferencesKey("use_dynamic_colors")
+        val KEY_BLUR_BACKGROUND = booleanPreferencesKey("blur_background")
+        val KEY_SMOOTH_ANIMATIONS = booleanPreferencesKey("smooth_animations")
 
         val KEY_AUTO_BACKUP_ENABLED = booleanPreferencesKey("auto_backup_enabled")
         val KEY_BACKUP_VIDEOS = booleanPreferencesKey("backup_videos")
@@ -118,6 +165,42 @@ class PreferencesManager(
         }
     }
 
+    val themeAccentFlow: Flow<ThemeAccent> = context.dataStore.data.map { prefs ->
+        try {
+            ThemeAccent.valueOf(prefs[KEY_THEME_ACCENT] ?: ThemeAccent.BLUE.name)
+        } catch (_: Exception) {
+            ThemeAccent.BLUE
+        }
+    }
+
+    val backgroundStyleFlow: Flow<BackgroundStyle> = context.dataStore.data.map { prefs ->
+        try {
+            BackgroundStyle.valueOf(prefs[KEY_BACKGROUND_STYLE] ?: BackgroundStyle.DEFAULT.name)
+        } catch (_: Exception) {
+            BackgroundStyle.DEFAULT
+        }
+    }
+
+    val themePresetFlow: Flow<ThemePreset> = context.dataStore.data.map { prefs ->
+        try {
+            ThemePreset.valueOf(prefs[KEY_THEME_PRESET] ?: ThemePreset.DEFAULT.name)
+        } catch (_: Exception) {
+            ThemePreset.DEFAULT
+        }
+    }
+
+    val useDynamicColorsFlow: Flow<Boolean> = context.dataStore.data.map { prefs ->
+        prefs[KEY_USE_DYNAMIC_COLORS] ?: true
+    }
+
+    val blurBackgroundFlow: Flow<Boolean> = context.dataStore.data.map { prefs ->
+        prefs[KEY_BLUR_BACKGROUND] ?: true
+    }
+
+    val smoothAnimationsFlow: Flow<Boolean> = context.dataStore.data.map { prefs ->
+        prefs[KEY_SMOOTH_ANIMATIONS] ?: true
+    }
+
     val backupSettingsFlow: Flow<BackupSettings> = context.dataStore.data.map { prefs ->
         BackupSettings(
             isAutoBackupEnabled = prefs[KEY_AUTO_BACKUP_ENABLED] ?: false,
@@ -161,6 +244,46 @@ class PreferencesManager(
     suspend fun setThemeMode(mode: AppThemeMode) {
         context.dataStore.edit { prefs ->
             prefs[KEY_THEME_MODE] = mode.name
+        }
+    }
+
+    suspend fun setThemeAccent(accent: ThemeAccent) {
+        context.dataStore.edit { prefs ->
+            prefs[KEY_THEME_ACCENT] = accent.name
+        }
+    }
+
+    suspend fun setBackgroundStyle(style: BackgroundStyle) {
+        context.dataStore.edit { prefs ->
+            prefs[KEY_BACKGROUND_STYLE] = style.name
+        }
+    }
+
+    suspend fun setThemePreset(preset: ThemePreset) {
+        context.dataStore.edit { prefs ->
+            prefs[KEY_THEME_PRESET] = preset.name
+            prefs[KEY_THEME_MODE] = preset.mode.name
+            prefs[KEY_THEME_ACCENT] = preset.accent.name
+            prefs[KEY_BACKGROUND_STYLE] = preset.bgStyle.name
+            prefs[KEY_USE_DYNAMIC_COLORS] = false
+        }
+    }
+
+    suspend fun setUseDynamicColors(enabled: Boolean) {
+        context.dataStore.edit { prefs ->
+            prefs[KEY_USE_DYNAMIC_COLORS] = enabled
+        }
+    }
+
+    suspend fun setBlurBackground(enabled: Boolean) {
+        context.dataStore.edit { prefs ->
+            prefs[KEY_BLUR_BACKGROUND] = enabled
+        }
+    }
+
+    suspend fun setSmoothAnimations(enabled: Boolean) {
+        context.dataStore.edit { prefs ->
+            prefs[KEY_SMOOTH_ANIMATIONS] = enabled
         }
     }
 

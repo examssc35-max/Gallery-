@@ -14,6 +14,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -43,11 +44,13 @@ import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayCircleFilled
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -79,6 +82,7 @@ import com.example.domain.repository.BackupRepository
 import com.example.domain.repository.MediaRepository
 import com.example.domain.repository.R2Repository
 import com.example.domain.repository.UploadResult
+import com.example.ui.common.FileOptionsBottomSheet
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -87,6 +91,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MediaViewerScreen(
     mediaList: List<MediaItem>,
@@ -200,6 +205,7 @@ fun MediaViewerScreen(
     var isFavorite by remember(currentItem.id) { mutableStateOf(currentItem.isFavorite) }
     var showDeleteConfirmDialog by remember { mutableStateOf(false) }
     var showDetailsDialog by remember { mutableStateOf(false) }
+    var showFileOptionsSheet by remember { mutableStateOf(false) }
     var isUploadingToR2 by remember { mutableStateOf(false) }
     var isDownloadingFromR2 by remember { mutableStateOf(false) }
     var isDownloaded by remember(currentItem.id) { mutableStateOf(false) }
@@ -313,323 +319,252 @@ fun MediaViewerScreen(
             }
         }
 
-        // Top App Bar
+        // Floating Top Bar: Minimal translucent controls
         AnimatedVisibility(
             visible = controlsVisible,
             enter = fadeIn() + slideInVertically(initialOffsetY = { -it }),
             exit = fadeOut() + slideOutVertically(targetOffsetY = { -it }),
             modifier = Modifier.align(Alignment.TopCenter)
         ) {
-            Box(
+            Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(
-                        Brush.verticalGradient(
-                            colors = listOf(Color.Black.copy(alpha = 0.75f), Color.Transparent)
-                        )
-                    )
                     .statusBarsPadding()
-                    .padding(horizontal = 8.dp, vertical = 6.dp)
+                    .padding(horizontal = 16.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
+                // Circular Back Button
+                Surface(
+                    shape = CircleShape,
+                    color = Color.Black.copy(alpha = 0.55f),
+                    modifier = Modifier.size(42.dp)
                 ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        IconButton(
-                            onClick = {
-                                when {
-                                    isPlayingVideo -> isPlayingVideo = false
-                                    isCurrentItemZoomed -> resetZoomTrigger++
-                                    else -> onBack()
-                                }
-                            },
-                            modifier = Modifier.testTag("viewer_back_button")
-                        ) {
-                            Icon(
-                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                                contentDescription = "Back",
-                                tint = Color.White
-                            )
-                        }
-
-                        Spacer(modifier = Modifier.width(8.dp))
-
-                        Column {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(
-                                    text = "${pagerState.currentPage + 1} of ${effectiveMediaList.size}",
-                                    color = Color.White,
-                                    fontSize = 14.sp,
-                                    fontWeight = FontWeight.SemiBold
-                                )
-                                if (currentItem.isCloud) {
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Surface(
-                                        shape = RoundedCornerShape(10.dp),
-                                        color = Color(0xFF0288D1).copy(alpha = 0.75f)
-                                    ) {
-                                        Row(
-                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Default.Cloud,
-                                                contentDescription = "Cloud",
-                                                tint = Color.White,
-                                                modifier = Modifier.size(11.dp)
-                                            )
-                                            Spacer(modifier = Modifier.width(3.dp))
-                                            Text(
-                                                text = "Cloudflare R2",
-                                                color = Color.White,
-                                                fontSize = 10.sp,
-                                                fontWeight = FontWeight.Medium
-                                            )
-                                        }
-                                    }
-                                }
+                    IconButton(
+                        onClick = {
+                            when {
+                                isPlayingVideo -> isPlayingVideo = false
+                                isCurrentItemZoomed -> resetZoomTrigger++
+                                else -> onBack()
                             }
-                            Text(
-                                text = currentItem.name,
-                                color = Color.White.copy(alpha = 0.7f),
-                                fontSize = 11.sp,
-                                maxLines = 1
+                        },
+                        modifier = Modifier.testTag("viewer_back_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "Back",
+                            tint = Color.White
+                        )
+                    }
+                }
+
+                // Centered Index Pill
+                Surface(
+                    shape = RoundedCornerShape(20.dp),
+                    color = Color.Black.copy(alpha = 0.55f),
+                    modifier = Modifier.padding(horizontal = 8.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "${pagerState.currentPage + 1} / ${effectiveMediaList.size}",
+                            color = Color.White,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        if (currentItem.isCloud) {
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Icon(
+                                imageVector = Icons.Default.Cloud,
+                                contentDescription = "R2",
+                                tint = Color(0xFF29B6F6),
+                                modifier = Modifier.size(13.dp)
                             )
                         }
                     }
+                }
 
-                    Row {
-                        IconButton(onClick = { showDetailsDialog = true }) {
-                            Icon(
-                                imageVector = Icons.Default.Info,
-                                contentDescription = "Details",
-                                tint = Color.White
-                            )
-                        }
+                // Circular Details / More Button
+                Surface(
+                    shape = CircleShape,
+                    color = Color.Black.copy(alpha = 0.55f),
+                    modifier = Modifier.size(42.dp)
+                ) {
+                    IconButton(
+                        onClick = { showFileOptionsSheet = true },
+                        modifier = Modifier.testTag("viewer_more_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.MoreVert,
+                            contentDescription = "Options",
+                            tint = Color.White
+                        )
                     }
                 }
             }
         }
 
-        // Bottom Action Bar: Comfortable, safe padding above navigation bar
+        // Floating Bottom Action Capsule Pill (iOS / M3 minimal style)
         AnimatedVisibility(
             visible = controlsVisible,
             enter = fadeIn() + slideInVertically(initialOffsetY = { it }),
             exit = fadeOut() + slideOutVertically(targetOffsetY = { it }),
             modifier = Modifier.align(Alignment.BottomCenter)
         ) {
-            Box(
+            Surface(
+                shape = RoundedCornerShape(32.dp),
+                color = Color(0xFF14171E).copy(alpha = 0.88f),
+                border = BorderStroke(1.dp, Color.White.copy(alpha = 0.12f)),
+                shadowElevation = 10.dp,
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .background(
-                        Brush.verticalGradient(
-                            colors = listOf(Color.Transparent, Color.Black.copy(alpha = 0.85f))
-                        )
-                    )
                     .navigationBarsPadding()
-                    .padding(horizontal = 16.dp, vertical = 14.dp)
+                    .padding(bottom = 20.dp)
             ) {
-                Surface(
-                    shape = RoundedCornerShape(28.dp),
-                    color = Color(0xFF1E222D).copy(alpha = 0.92f),
-                    shadowElevation = 8.dp,
-                    modifier = Modifier.fillMaxWidth()
+                Row(
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(20.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 12.dp, vertical = 6.dp),
-                        horizontalArrangement = Arrangement.SpaceEvenly,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        // 1. Cloud Download OR Save to R2 Action
-                        if (currentItem.isCloud) {
-                            Column(
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                modifier = Modifier
-                                    .clickable(enabled = !isDownloadingFromR2) {
-                                        val key = currentItem.cloudKey ?: currentItem.path
-                                        if (r2Repository != null && key.isNotEmpty()) {
-                                            isDownloadingFromR2 = true
-                                            scope.launch {
-                                                try {
-                                                    val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
-                                                    val targetFile = File(downloadsDir, currentItem.name)
-                                                    val result = r2Repository.downloadKeyToFile(key, targetFile)
-                                                    isDownloadingFromR2 = false
-                                                    if (result.isSuccess) {
-                                                        isDownloaded = true
-                                                        MediaScannerConnection.scanFile(context, arrayOf(targetFile.absolutePath), null, null)
-                                                        snackbarHostState.showSnackbar("Downloaded to Downloads: ${currentItem.name}")
-                                                    } else {
-                                                        snackbarHostState.showSnackbar("Download failed: ${result.exceptionOrNull()?.message}")
-                                                    }
-                                                } catch (e: Exception) {
-                                                    isDownloadingFromR2 = false
-                                                    snackbarHostState.showSnackbar("Download failed: ${e.message}")
-                                                }
-                                            }
-                                        }
-                                    }
-                                    .padding(horizontal = 10.dp, vertical = 6.dp)
-                                    .testTag("viewer_download_cloud_button")
-                            ) {
-                                if (isDownloadingFromR2) {
-                                    CircularProgressIndicator(
-                                        modifier = Modifier.size(24.dp),
-                                        strokeWidth = 2.dp,
-                                        color = MaterialTheme.colorScheme.primary
-                                    )
-                                } else if (isDownloaded) {
-                                    Icon(
-                                        imageVector = Icons.Default.CheckCircle,
-                                        contentDescription = "Downloaded",
-                                        tint = Color(0xFF4CAF50),
-                                        modifier = Modifier.size(24.dp)
-                                    )
-                                } else {
-                                    Icon(
-                                        imageVector = Icons.Default.Download,
-                                        contentDescription = "Download",
-                                        tint = MaterialTheme.colorScheme.primary,
-                                        modifier = Modifier.size(24.dp)
-                                    )
-                                }
-                                Spacer(modifier = Modifier.height(2.dp))
-                                Text(
-                                    text = if (isDownloaded) "Downloaded" else "Download",
-                                    color = if (isDownloaded) Color(0xFF4CAF50) else Color.White,
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Medium
-                                )
-                            }
-                        } else {
-                            Column(
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                modifier = Modifier
-                                    .clickable(enabled = !isUploadingToR2) {
-                                        if (isAlreadyBackedUp) {
-                                            scope.launch {
-                                                snackbarHostState.showSnackbar("Already backed up to Cloudflare R2")
-                                            }
-                                        } else {
-                                            isUploadingToR2 = true
-                                            uploadStatusText = "Uploading..."
-                                            scope.launch {
-                                                val result = backupRepository.uploadSingleMedia(currentItem)
-                                                isUploadingToR2 = false
-                                                when (result) {
-                                                    is UploadResult.Success -> {
-                                                        isAlreadyBackedUp = true
-                                                        snackbarHostState.showSnackbar("Saved to Cloudflare R2!")
-                                                    }
-                                                    is UploadResult.AlreadyBackedUp -> {
-                                                        isAlreadyBackedUp = true
-                                                        snackbarHostState.showSnackbar("Already backed up to R2")
-                                                    }
-                                                    is UploadResult.Failure -> {
-                                                        snackbarHostState.showSnackbar("Upload failed: ${result.error}")
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                    .padding(horizontal = 10.dp, vertical = 6.dp)
-                                    .testTag("viewer_save_to_r2_button")
-                            ) {
-                                if (isUploadingToR2) {
-                                    CircularProgressIndicator(
-                                        modifier = Modifier.size(24.dp),
-                                        strokeWidth = 2.dp,
-                                        color = MaterialTheme.colorScheme.primary
-                                    )
-                                } else if (isAlreadyBackedUp) {
-                                    Icon(
-                                        imageVector = Icons.Default.CheckCircle,
-                                        contentDescription = "Backed up",
-                                        tint = Color(0xFF4CAF50),
-                                        modifier = Modifier.size(24.dp)
-                                    )
-                                } else {
-                                    Icon(
-                                        imageVector = Icons.Default.CloudUpload,
-                                        contentDescription = "Save to R2",
-                                        tint = MaterialTheme.colorScheme.primary,
-                                        modifier = Modifier.size(24.dp)
-                                    )
-                                }
-                                Spacer(modifier = Modifier.height(2.dp))
-                                Text(
-                                    text = if (isAlreadyBackedUp) "Backed Up" else "Save to R2",
-                                    color = if (isAlreadyBackedUp) Color(0xFF4CAF50) else Color.White,
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Medium
-                                )
-                            }
-                        }
-
-                        // 2. Share Action
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            modifier = Modifier
-                                .clickable {
-                                    shareMedia(context, currentItem)
-                                }
-                                .padding(horizontal = 10.dp, vertical = 6.dp)
-                                .testTag("viewer_share_button")
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Share,
-                                contentDescription = "Share",
-                                tint = Color.White,
-                                modifier = Modifier.size(24.dp)
-                            )
-                            Spacer(modifier = Modifier.height(2.dp))
-                            Text("Share", color = Color.White, fontSize = 11.sp)
-                        }
-
-                        // 3. Favorite Action
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            modifier = Modifier
-                                .clickable {
+                    // Quick Download OR Save to R2 Action
+                    if (currentItem.isCloud) {
+                        IconButton(
+                            onClick = {
+                                val key = currentItem.cloudKey ?: currentItem.path
+                                if (r2Repository != null && key.isNotEmpty() && !isDownloadingFromR2) {
+                                    isDownloadingFromR2 = true
                                     scope.launch {
-                                        mediaRepository.toggleFavorite(currentItem.id)
-                                        isFavorite = !isFavorite
+                                        try {
+                                            val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+                                            val targetFile = File(downloadsDir, currentItem.name)
+                                            val result = r2Repository.downloadKeyToFile(key, targetFile)
+                                            isDownloadingFromR2 = false
+                                            if (result.isSuccess) {
+                                                isDownloaded = true
+                                                MediaScannerConnection.scanFile(context, arrayOf(targetFile.absolutePath), null, null)
+                                                snackbarHostState.showSnackbar("Downloaded to Downloads: ${currentItem.name}")
+                                            } else {
+                                                snackbarHostState.showSnackbar("Download failed: ${result.exceptionOrNull()?.message}")
+                                            }
+                                        } catch (e: Exception) {
+                                            isDownloadingFromR2 = false
+                                            snackbarHostState.showSnackbar("Download failed: ${e.message}")
+                                        }
                                     }
                                 }
-                                .padding(horizontal = 10.dp, vertical = 6.dp)
-                                .testTag("viewer_favorite_button")
-                        ) {
-                            Icon(
-                                imageVector = if (isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
-                                contentDescription = "Favorite",
-                                tint = if (isFavorite) Color(0xFFFF4081) else Color.White,
-                                modifier = Modifier.size(24.dp)
-                            )
-                            Spacer(modifier = Modifier.height(2.dp))
-                            Text("Favorite", color = Color.White, fontSize = 11.sp)
-                        }
-
-                        // 4. Delete Action (With Confirmation Dialog)
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally,
+                            },
                             modifier = Modifier
-                                .clickable { showDeleteConfirmDialog = true }
-                                .padding(horizontal = 10.dp, vertical = 6.dp)
-                                .testTag("viewer_delete_button")
+                                .size(36.dp)
+                                .testTag("viewer_download_cloud_button")
                         ) {
-                            Icon(
-                                imageVector = Icons.Default.Delete,
-                                contentDescription = "Delete",
-                                tint = Color(0xFFFF5252),
-                                modifier = Modifier.size(24.dp)
-                            )
-                            Spacer(modifier = Modifier.height(2.dp))
-                            Text("Delete", color = Color(0xFFFF5252), fontSize = 11.sp)
+                            if (isDownloadingFromR2) {
+                                CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.primary)
+                            } else {
+                                Icon(
+                                    imageVector = if (isDownloaded) Icons.Default.CheckCircle else Icons.Default.Download,
+                                    contentDescription = "Download",
+                                    tint = if (isDownloaded) Color(0xFF4CAF50) else Color.White
+                                )
+                            }
                         }
+                    } else {
+                        IconButton(
+                            onClick = {
+                                if (isAlreadyBackedUp) {
+                                    scope.launch { snackbarHostState.showSnackbar("Already backed up to Cloudflare R2") }
+                                } else if (!isUploadingToR2) {
+                                    isUploadingToR2 = true
+                                    scope.launch {
+                                        val result = backupRepository.uploadSingleMedia(currentItem)
+                                        isUploadingToR2 = false
+                                        when (result) {
+                                            is UploadResult.Success, is UploadResult.AlreadyBackedUp -> {
+                                                isAlreadyBackedUp = true
+                                                snackbarHostState.showSnackbar("Saved to Cloudflare R2!")
+                                            }
+                                            is UploadResult.Failure -> {
+                                                snackbarHostState.showSnackbar("Upload failed: ${result.error}")
+                                            }
+                                        }
+                                    }
+                                }
+                            },
+                            modifier = Modifier
+                                .size(36.dp)
+                                .testTag("viewer_save_to_r2_button")
+                        ) {
+                            if (isUploadingToR2) {
+                                CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.primary)
+                            } else {
+                                Icon(
+                                    imageVector = if (isAlreadyBackedUp) Icons.Default.CheckCircle else Icons.Default.CloudUpload,
+                                    contentDescription = "Save to R2",
+                                    tint = if (isAlreadyBackedUp) Color(0xFF4CAF50) else Color.White
+                                )
+                            }
+                        }
+                    }
+
+                    // Share Action
+                    IconButton(
+                        onClick = { shareMedia(context, currentItem) },
+                        modifier = Modifier
+                            .size(36.dp)
+                            .testTag("viewer_share_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Share,
+                            contentDescription = "Share",
+                            tint = Color.White
+                        )
+                    }
+
+                    // Favorite Action
+                    IconButton(
+                        onClick = {
+                            scope.launch {
+                                mediaRepository.toggleFavorite(currentItem.id)
+                                isFavorite = !isFavorite
+                            }
+                        },
+                        modifier = Modifier
+                            .size(36.dp)
+                            .testTag("viewer_favorite_button")
+                    ) {
+                        Icon(
+                            imageVector = if (isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                            contentDescription = "Favorite",
+                            tint = if (isFavorite) Color(0xFFFF4081) else Color.White
+                        )
+                    }
+
+                    // Delete Action
+                    IconButton(
+                        onClick = { showDeleteConfirmDialog = true },
+                        modifier = Modifier
+                            .size(36.dp)
+                            .testTag("viewer_delete_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Delete,
+                            contentDescription = "Delete",
+                            tint = Color(0xFFFF5252)
+                        )
+                    }
+
+                    // More Options (opens modern bottom sheet)
+                    IconButton(
+                        onClick = { showFileOptionsSheet = true },
+                        modifier = Modifier
+                            .size(36.dp)
+                            .testTag("viewer_sheet_options_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.MoreVert,
+                            contentDescription = "More Options",
+                            tint = Color.White
+                        )
                     }
                 }
             }
@@ -641,6 +576,65 @@ fun MediaViewerScreen(
                 .align(Alignment.BottomCenter)
                 .navigationBarsPadding()
                 .padding(bottom = 84.dp)
+        )
+    }
+
+    // File Options Bottom Sheet
+    if (showFileOptionsSheet) {
+        FileOptionsBottomSheet(
+            item = currentItem,
+            onDismiss = { showFileOptionsSheet = false },
+            onOpen = { showFileOptionsSheet = false },
+            onToggleFavorite = {
+                scope.launch {
+                    mediaRepository.toggleFavorite(currentItem.id)
+                    isFavorite = !isFavorite
+                }
+            },
+            onDownloadOrUpload = {
+                if (currentItem.isCloud) {
+                    val key = currentItem.cloudKey ?: currentItem.path
+                    if (r2Repository != null && key.isNotEmpty()) {
+                        isDownloadingFromR2 = true
+                        scope.launch {
+                            try {
+                                val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+                                val targetFile = File(downloadsDir, currentItem.name)
+                                val result = r2Repository.downloadKeyToFile(key, targetFile)
+                                isDownloadingFromR2 = false
+                                if (result.isSuccess) {
+                                    isDownloaded = true
+                                    MediaScannerConnection.scanFile(context, arrayOf(targetFile.absolutePath), null, null)
+                                    snackbarHostState.showSnackbar("Downloaded: ${currentItem.name}")
+                                } else {
+                                    snackbarHostState.showSnackbar("Download failed: ${result.exceptionOrNull()?.message}")
+                                }
+                            } catch (e: Exception) {
+                                isDownloadingFromR2 = false
+                                snackbarHostState.showSnackbar("Download failed: ${e.message}")
+                            }
+                        }
+                    }
+                } else {
+                    if (!isAlreadyBackedUp) {
+                        isUploadingToR2 = true
+                        scope.launch {
+                            val result = backupRepository.uploadSingleMedia(currentItem)
+                            isUploadingToR2 = false
+                            if (result is UploadResult.Success || result is UploadResult.AlreadyBackedUp) {
+                                isAlreadyBackedUp = true
+                                snackbarHostState.showSnackbar("Saved to Cloudflare R2!")
+                            }
+                        }
+                    }
+                }
+            },
+            onDelete = {
+                showDeleteConfirmDialog = true
+            },
+            onShowDetails = {
+                showDetailsDialog = true
+            }
         )
     }
 
