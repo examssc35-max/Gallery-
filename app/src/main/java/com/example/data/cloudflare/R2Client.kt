@@ -166,8 +166,12 @@ class R2Client(
                 secretAccessKey = credentials.secretAccessKey.trim()
             )
 
-            val queryStr = queryParams.entries.joinToString("&") { "${it.key}=${it.value}" }
-            val url = "$baseUrl$path?$queryStr"
+            val canonicalQuery = queryParams.entries
+                .sortedBy { it.key }
+                .joinToString("&") { (k, v) ->
+                    "${AwsSigV4Signer.urlEncode(k)}=${AwsSigV4Signer.urlEncode(v)}"
+                }
+            val url = "$baseUrl$path?$canonicalQuery"
 
             val request = Request.Builder()
                 .url(url)

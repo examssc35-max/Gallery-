@@ -27,6 +27,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
@@ -44,12 +45,14 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Cloud
+import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.CreateNewFolder
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.GridView
+import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PieChart
@@ -59,6 +62,7 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Upload
+import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material.icons.filled.ViewList
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -101,10 +105,14 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import coil.compose.SubcomposeAsyncImage
+import coil.request.CachePolicy
+import coil.request.ImageRequest
 import com.example.data.local.SortOrder
 import com.example.domain.model.CloudFileType
 import com.example.domain.model.CloudFileTypeResolver
@@ -277,10 +285,10 @@ fun CloudTabScreen(
                 }
 
                 // 2. Loading initial data
-                uiState.isLoading && uiState.r2Files.isEmpty() && uiState.folders.isEmpty() -> {
+                uiState.isLoading && uiState.r2Files.isEmpty() && uiState.folders.isEmpty() && uiState.errorMessage == null -> {
                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            CircularProgressIndicator()
+                            CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
                             Spacer(modifier = Modifier.height(16.dp))
                             Text(
                                 text = "Loading files from Cloudflare R2...",
@@ -291,11 +299,22 @@ fun CloudTabScreen(
                     }
                 }
 
-                // 3. Connected but bucket/folder is empty
-                filteredFiles.isEmpty() && uiState.folders.isEmpty() -> {
+                // 3. Error state when no files/folders could be loaded
+                uiState.errorMessage != null && uiState.r2Files.isEmpty() && uiState.folders.isEmpty() -> {
+                    CloudErrorView(
+                        message = uiState.errorMessage ?: "Failed to load files from Cloudflare R2",
+                        onRetry = { viewModel.refresh() }
+                    )
+                }
+
+                // 4. Connected but filtered view or bucket/folder is empty
+                !uiState.isLoading && filteredFiles.isEmpty() -> {
                     CloudEmptyView(
                         searchQuery = uiState.searchQuery,
                         currentPrefix = uiState.currentPrefix,
+                        activeFilter = uiState.fileTypeFilter,
+                        onClearFilter = { viewModel.setFileTypeFilter(null) },
+                        onClearSearch = { viewModel.setSearchQuery("") },
                         onRefresh = { viewModel.refresh() },
                         onUploadClick = { filePickerLauncher.launch("*/*") },
                         onCreateFolderClick = {
@@ -305,7 +324,7 @@ fun CloudTabScreen(
                     )
                 }
 
-                // 4. File Browser (Grid or List)
+                // 5. File Browser (Grid or List)
                 else -> {
                     val pullRefreshState = rememberPullToRefreshState()
 
@@ -959,11 +978,47 @@ private fun CloudGridItem(
                     onLongClick = onLongClick
                 )
         ) {
-            AsyncImage(
-                model = item.downloadUrl,
+            SubcomposeAsyncImage(
+                model = ImageRequest.Builder(LocalContext.current)
+                    .data(item.downloadUrl)
+                    .crossfade(true)
+                    .memoryCacheKey("r2_thumb_${item.key}")
+                    .diskCacheKey("r2_thumb_${item.key}")
+                    .memoryCachePolicy(CachePolicy.ENABLED)
+                    .diskCachePolicy(CachePolicy.ENABLED)
+                    .build(),
                 contentDescription = item.name,
                 contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize()
+                modifier = Modifier.fillMaxSize(),
+                loading = {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(18.dp),
+                            strokeWidth = 2.dp,
+                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.6f)
+                        )
+                    }
+                },
+                error = {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = if (item.fileType == CloudFileType.VIDEO) Icons.Default.Videocam else Icons.Default.Image,
+                            contentDescription = item.name,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                            modifier = Modifier.size(28.dp)
+                        )
+                    }
+                }
             )
 
             // Video play icon indicator
@@ -1127,11 +1182,40 @@ private fun CloudListItem(
             contentAlignment = Alignment.Center
         ) {
             if (item.isMedia && !item.downloadUrl.isNullOrEmpty()) {
-                AsyncImage(
-                    model = item.downloadUrl,
+                SubcomposeAsyncImage(
+                    model = ImageRequest.Builder(LocalContext.current)
+                        .data(item.downloadUrl)
+                        .crossfade(true)
+                        .memoryCacheKey("r2_thumb_${item.key}")
+                        .diskCacheKey("r2_thumb_${item.key}")
+                        .memoryCachePolicy(CachePolicy.ENABLED)
+                        .diskCachePolicy(CachePolicy.ENABLED)
+                        .build(),
                     contentDescription = null,
                     contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize()
+                    modifier = Modifier.fillMaxSize(),
+                    loading = {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(14.dp),
+                                strokeWidth = 2.dp,
+                                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.6f)
+                            )
+                        }
+                    },
+                    error = {
+                        Icon(
+                            imageVector = CloudFileTypeResolver.getIcon(item.fileType),
+                            contentDescription = null,
+                            tint = CloudFileTypeResolver.getIconColor(item.fileType),
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
                 )
             } else {
                 Icon(
@@ -1358,9 +1442,60 @@ private fun CloudNotConnectedView(
 }
 
 @Composable
+private fun CloudErrorView(
+    message: String,
+    onRetry: () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(32.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            modifier = Modifier.widthIn(max = 380.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Default.CloudOff,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.error,
+                modifier = Modifier.size(56.dp)
+            )
+            Spacer(modifier = Modifier.height(16.dp))
+            Text(
+                text = "Failed to load files",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = message,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center
+            )
+            Spacer(modifier = Modifier.height(20.dp))
+            Button(
+                onClick = onRetry,
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+                Spacer(modifier = Modifier.width(6.dp))
+                Text("Retry")
+            }
+        }
+    }
+}
+
+@Composable
 private fun CloudEmptyView(
     searchQuery: String,
     currentPrefix: String,
+    activeFilter: CloudFileType? = null,
+    onClearFilter: () -> Unit = {},
+    onClearSearch: () -> Unit = {},
     onRefresh: () -> Unit,
     onUploadClick: () -> Unit,
     onCreateFolderClick: () -> Unit
@@ -1373,37 +1508,65 @@ private fun CloudEmptyView(
         contentAlignment = Alignment.Center
     ) {
         Column(
-            horizontalAlignment = Alignment.CenterHorizontally
+            horizontalAlignment = Alignment.CenterHorizontally,
+            modifier = Modifier.widthIn(max = 380.dp)
         ) {
             Icon(
-                imageVector = Icons.Default.Folder,
+                imageVector = if (activeFilter != null) CloudFileTypeResolver.getIcon(activeFilter) else Icons.Default.Folder,
                 contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
+                tint = if (activeFilter != null) CloudFileTypeResolver.getIconColor(activeFilter).copy(alpha = 0.6f) else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
                 modifier = Modifier.size(64.dp)
             )
             Spacer(modifier = Modifier.height(12.dp))
             Text(
-                text = if (searchQuery.isNotEmpty()) "No files match '$searchQuery'" else "This folder is empty",
+                text = when {
+                    searchQuery.isNotEmpty() -> "No files match '$searchQuery'"
+                    activeFilter != null -> "No ${activeFilter.displayName} found"
+                    else -> "This folder is empty"
+                },
                 style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold
+                fontWeight = FontWeight.SemiBold,
+                textAlign = TextAlign.Center
             )
             Spacer(modifier = Modifier.height(6.dp))
             Text(
-                text = if (currentPrefix.isEmpty()) "Your Cloudflare R2 bucket has no files in root" else "Path: $currentPrefix",
+                text = when {
+                    searchQuery.isNotEmpty() -> "Try searching with a different keyword"
+                    activeFilter != null -> "No ${activeFilter.displayName.lowercase()} in ${if (currentPrefix.isEmpty()) "bucket root" else currentPrefix}"
+                    currentPrefix.isEmpty() -> "Your Cloudflare R2 bucket has no files in root"
+                    else -> "Path: $currentPrefix"
+                },
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center
             )
             Spacer(modifier = Modifier.height(20.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = onUploadClick) {
-                    Icon(Icons.Default.Upload, contentDescription = null, modifier = Modifier.size(16.dp))
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text("Upload")
+            when {
+                searchQuery.isNotEmpty() -> {
+                    Button(onClick = onClearSearch, shape = RoundedCornerShape(12.dp)) {
+                        Icon(Icons.Default.Close, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Clear Search")
+                    }
                 }
-                FilledTonalButton(onClick = onCreateFolderClick) {
-                    Icon(Icons.Default.CreateNewFolder, contentDescription = null, modifier = Modifier.size(16.dp))
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text("New Folder")
+                activeFilter != null -> {
+                    Button(onClick = onClearFilter, shape = RoundedCornerShape(12.dp)) {
+                        Text("Show All Files")
+                    }
+                }
+                else -> {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton(onClick = onUploadClick) {
+                            Icon(Icons.Default.Upload, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Upload")
+                        }
+                        FilledTonalButton(onClick = onCreateFolderClick) {
+                            Icon(Icons.Default.CreateNewFolder, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("New Folder")
+                        }
+                    }
                 }
             }
         }

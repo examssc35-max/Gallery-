@@ -135,39 +135,58 @@ class CloudTabViewModel(
                 _uiState.value = _uiState.value.copy(isLoadingMore = true)
             }
 
-            val prefix = _uiState.value.currentPrefix
-            val token = if (reset) null else _uiState.value.nextContinuationToken
+            try {
+                val prefix = _uiState.value.currentPrefix
+                val token = if (reset) null else _uiState.value.nextContinuationToken
 
-            val result = r2Repository.listCloudMediaPage(
-                prefix = prefix,
-                continuationToken = token,
-                pageSize = 60
-            )
+                val result = r2Repository.listCloudMediaPage(
+                    prefix = prefix,
+                    continuationToken = token,
+                    pageSize = 60
+                )
 
-            if (result.isSuccess) {
-                val page = result.getOrThrow()
-                val newFiles = if (reset) page.r2Items else (_uiState.value.r2Files + page.r2Items).distinctBy { it.key }
-                val newItems = if (reset) page.items else (_uiState.value.items + page.items).distinctBy { it.path }
-                val newFolders = if (reset) page.folders else (_uiState.value.folders + page.folders).distinct()
+                if (result.isSuccess) {
+                    val page = result.getOrThrow()
+                    val newFiles = if (reset) page.r2Items else (_uiState.value.r2Files + page.r2Items).distinctBy { it.key }
+                    val newItems = if (reset) page.items else (_uiState.value.items + page.items).distinctBy { it.path }
+                    val newFolders = if (reset) page.folders else (_uiState.value.folders + page.folders).distinct()
 
+                    _uiState.value = _uiState.value.copy(
+                        isLoading = false,
+                        isRefreshing = false,
+                        isLoadingMore = false,
+                        r2Files = newFiles,
+                        items = newItems,
+                        folders = newFolders,
+                        nextContinuationToken = page.nextContinuationToken,
+                        hasMore = page.isTruncated && !page.nextContinuationToken.isNullOrBlank(),
+                        errorMessage = null
+                    )
+                } else {
+                    val errorMsg = result.exceptionOrNull()?.localizedMessage
+                        ?: result.exceptionOrNull()?.message
+                        ?: "Failed to load files from Cloudflare R2"
+                    _uiState.value = _uiState.value.copy(
+                        isLoading = false,
+                        isRefreshing = false,
+                        isLoadingMore = false,
+                        errorMessage = errorMsg
+                    )
+                }
+            } catch (e: Exception) {
                 _uiState.value = _uiState.value.copy(
                     isLoading = false,
                     isRefreshing = false,
                     isLoadingMore = false,
-                    r2Files = newFiles,
-                    items = newItems,
-                    folders = newFolders,
-                    nextContinuationToken = page.nextContinuationToken,
-                    hasMore = page.isTruncated && !page.nextContinuationToken.isNullOrBlank(),
-                    errorMessage = null
+                    errorMessage = e.localizedMessage ?: e.message ?: "An unexpected error occurred"
                 )
-            } else {
-                _uiState.value = _uiState.value.copy(
-                    isLoading = false,
-                    isRefreshing = false,
-                    isLoadingMore = false,
-                    errorMessage = result.exceptionOrNull()?.message ?: "Failed to load files from Cloudflare R2"
-                )
+            } finally {
+                if (_uiState.value.isLoading || _uiState.value.isRefreshing) {
+                    _uiState.value = _uiState.value.copy(
+                        isLoading = false,
+                        isRefreshing = false
+                    )
+                }
             }
         }
     }
@@ -497,9 +516,12 @@ class CloudTabViewModel(
         val state = _uiState.value
         var list = state.r2Files
 
-        // File type filter
+        // File type filter:
+        // When activeFilter is null ("All"): show all objects (folders + files) in the current prefix.
+        // When a specific filter is selected (Photos, Videos, Audio, Documents, Archives, Other):
+        // do NOT include folders. Only display objects matching that fileType in the current prefix.
         if (state.fileTypeFilter != null) {
-            list = list.filter { it.isFolder || it.fileType == state.fileTypeFilter }
+            list = list.filter { !it.isFolder && it.fileType == state.fileTypeFilter }
         }
 
         // Category filter if active
@@ -514,7 +536,7 @@ class CloudTabViewModel(
             list = list.filter { it.name.contains(state.searchQuery, ignoreCase = true) }
         }
 
-        // Keep folders first, then sort files
+        // Keep folders first (only present when "All" is active), then sort files
         val folders = list.filter { it.isFolder }.sortedBy { it.name.lowercase() }
         val files = list.filter { !it.isFolder }
 
@@ -532,6 +554,15 @@ class CloudTabViewModel(
     fun getFilteredMediaItems(): List<MediaItem> {
         val state = _uiState.value
         var list = state.items
+
+        // File type filter
+        if (state.fileTypeFilter != null) {
+            list = when (state.fileTypeFilter) {
+                CloudFileType.IMAGE -> list.filter { !it.isVideo }
+                CloudFileType.VIDEO -> list.filter { it.isVideo }
+                else -> list
+            }
+        }
 
         if (state.categoryFilter != null) {
             list = list.filter {

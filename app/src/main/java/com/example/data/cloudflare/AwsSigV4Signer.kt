@@ -135,7 +135,7 @@ object AwsSigV4Signer {
             "${urlEncode(k)}=${urlEncode(v)}"
         }
 
-        val canonicalHeaders = "host:$host\n"
+        val canonicalHeaders = "host:${host.lowercase(Locale.US)}\n"
         val signedHeaders = "host"
         val payloadHash = "UNSIGNED-PAYLOAD"
 
@@ -184,7 +184,7 @@ object AwsSigV4Signer {
         return sb.toString()
     }
 
-    private fun urlEncode(value: String): String {
+    fun urlEncode(value: String): String {
         return URLEncoder.encode(value, "UTF-8")
             .replace("+", "%20")
             .replace("*", "%2A")
