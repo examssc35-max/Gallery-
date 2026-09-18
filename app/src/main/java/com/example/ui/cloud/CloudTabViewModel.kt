@@ -108,7 +108,20 @@ class CloudTabViewModel(
     }
 
     fun setFileTypeFilter(type: CloudFileType?) {
-        _uiState.value = _uiState.value.copy(fileTypeFilter = type)
+        if (_uiState.value.fileTypeFilter == type) return
+        _uiState.value = _uiState.value.copy(
+            fileTypeFilter = type,
+            r2Files = emptyList(),
+            items = emptyList(),
+            folders = emptyList(),
+            nextContinuationToken = null,
+            hasMore = false,
+            isLoading = true,
+            errorMessage = null,
+            selectedKeys = emptySet(),
+            isSelectionMode = false
+        )
+        loadCloudMedia(reset = true)
     }
 
     fun setCategoryFilter(category: MediaCategory?) {
@@ -136,14 +149,22 @@ class CloudTabViewModel(
             }
 
             try {
-                val prefix = _uiState.value.currentPrefix
+                val filter = _uiState.value.fileTypeFilter
                 val token = if (reset) null else _uiState.value.nextContinuationToken
 
-                val result = r2Repository.listCloudMediaPage(
-                    prefix = prefix,
-                    continuationToken = token,
-                    pageSize = 60
-                )
+                val result = if (filter != null) {
+                    r2Repository.listGlobalMediaPage(
+                        fileType = filter,
+                        continuationToken = token,
+                        targetPageSize = 60
+                    )
+                } else {
+                    r2Repository.listFolderPage(
+                        prefix = _uiState.value.currentPrefix,
+                        continuationToken = token,
+                        pageSize = 60
+                    )
+                }
 
                 if (result.isSuccess) {
                     val page = result.getOrThrow()
@@ -181,10 +202,11 @@ class CloudTabViewModel(
                     errorMessage = e.localizedMessage ?: e.message ?: "An unexpected error occurred"
                 )
             } finally {
-                if (_uiState.value.isLoading || _uiState.value.isRefreshing) {
+                if (_uiState.value.isLoading || _uiState.value.isRefreshing || _uiState.value.isLoadingMore) {
                     _uiState.value = _uiState.value.copy(
                         isLoading = false,
-                        isRefreshing = false
+                        isRefreshing = false,
+                        isLoadingMore = false
                     )
                 }
             }
@@ -193,7 +215,7 @@ class CloudTabViewModel(
 
     fun refresh() {
         _uiState.value = _uiState.value.copy(isRefreshing = true)
-        loadCloudMedia(reset = true)
+        loadCloudMedia(reset = true, silent = true)
     }
 
     fun loadMore() {
@@ -206,20 +228,28 @@ class CloudTabViewModel(
         val normalized = if (prefix.isNotEmpty() && !prefix.endsWith("/")) "$prefix/" else prefix
         _uiState.value = _uiState.value.copy(
             currentPrefix = normalized,
+            fileTypeFilter = null,
             items = emptyList(),
             r2Files = emptyList(),
             folders = emptyList(),
             nextContinuationToken = null,
             hasMore = false,
             selectedKeys = emptySet(),
-            isSelectionMode = false
+            isSelectionMode = false,
+            isLoading = true,
+            errorMessage = null
         )
         loadCloudMedia(reset = true)
     }
 
     fun navigateUp() {
         val curr = _uiState.value.currentPrefix.trimEnd('/')
-        if (curr.isEmpty()) return
+        if (curr.isEmpty() && _uiState.value.fileTypeFilter == null) return
+
+        if (_uiState.value.fileTypeFilter != null) {
+            setFileTypeFilter(null)
+            return
+        }
 
         val parent = if (curr.contains('/')) {
             curr.substringBeforeLast('/') + "/"
@@ -229,13 +259,16 @@ class CloudTabViewModel(
 
         _uiState.value = _uiState.value.copy(
             currentPrefix = parent,
+            fileTypeFilter = null,
             items = emptyList(),
             r2Files = emptyList(),
             folders = emptyList(),
             nextContinuationToken = null,
             hasMore = false,
             selectedKeys = emptySet(),
-            isSelectionMode = false
+            isSelectionMode = false,
+            isLoading = true,
+            errorMessage = null
         )
         loadCloudMedia(reset = true)
     }

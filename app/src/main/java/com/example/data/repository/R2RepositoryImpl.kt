@@ -5,6 +5,8 @@ import android.net.Uri
 import com.example.data.cloudflare.R2Client
 import com.example.data.local.PreferencesManager
 import com.example.data.local.R2Credentials
+import com.example.domain.model.CloudFileType
+import com.example.domain.model.CloudFileTypeResolver
 import com.example.domain.model.MediaCategory
 import com.example.domain.model.MediaClassifier
 import com.example.domain.model.MediaItem
@@ -68,7 +70,7 @@ class R2RepositoryImpl(
         return r2Client.listObjects(creds, prefix)
     }
 
-    override suspend fun listCloudMediaPage(
+    override suspend fun listFolderPage(
         prefix: String,
         continuationToken: String?,
         pageSize: Int
@@ -109,7 +111,7 @@ class R2RepositoryImpl(
                     val enrichedItem = r2Item.copy(downloadUrl = presignedUrl.ifEmpty { null })
                     allR2Items.add(enrichedItem)
 
-                    val isVideo = enrichedItem.fileType == com.example.domain.model.CloudFileType.VIDEO ||
+                    val isVideo = enrichedItem.fileType == CloudFileType.VIDEO ||
                             r2Item.mimeType.startsWith("video/") ||
                             name.endsWith(".mp4", ignoreCase = true) ||
                             name.endsWith(".mov", ignoreCase = true) ||
@@ -117,7 +119,7 @@ class R2RepositoryImpl(
                             name.endsWith(".webm", ignoreCase = true) ||
                             name.endsWith(".3gp", ignoreCase = true)
 
-                    val isImage = enrichedItem.fileType == com.example.domain.model.CloudFileType.IMAGE ||
+                    val isImage = enrichedItem.fileType == CloudFileType.IMAGE ||
                             r2Item.mimeType.startsWith("image/")
 
                     if (isImage || isVideo) {
@@ -152,6 +154,112 @@ class R2RepositoryImpl(
             )
         }
     }
+
+    override suspend fun listGlobalMediaPage(
+        fileType: CloudFileType,
+        continuationToken: String?,
+        targetPageSize: Int
+    ): Result<CloudMediaPage> = withContext(Dispatchers.IO) {
+        val creds = getCredentials()
+        if (!creds.isVerified && creds.secretAccessKey.isEmpty()) {
+            return@withContext Result.failure(IllegalStateException("Cloudflare R2 is not connected"))
+        }
+
+        val matchedR2Items = mutableListOf<R2Item>()
+        val matchedMediaItems = mutableListOf<MediaItem>()
+        var currentToken: String? = continuationToken
+        var isTruncated = false
+        var iterations = 0
+        val maxIterations = 10
+
+        while (matchedR2Items.size < targetPageSize && iterations < maxIterations) {
+            iterations++
+            val pageResult = r2Client.listObjectsPage(
+                credentials = creds,
+                prefix = "",
+                delimiter = "",
+                maxKeys = 200,
+                continuationToken = currentToken
+            )
+
+            if (pageResult.isFailure) {
+                if (matchedR2Items.isNotEmpty()) {
+                    break
+                }
+                return@withContext Result.failure(pageResult.exceptionOrNull() ?: Exception("Failed to list objects"))
+            }
+
+            val r2Page = pageResult.getOrThrow()
+            isTruncated = r2Page.isTruncated
+            currentToken = r2Page.nextContinuationToken
+
+            for (r2Item in r2Page.items) {
+                if (r2Item.isFolder || r2Item.key.endsWith("/")) continue
+
+                val itemType = CloudFileTypeResolver.resolve(r2Item.mimeType, r2Item.key)
+                if (itemType == fileType) {
+                    val presignedUrl = try {
+                        r2Client.getPresignedUrl(creds, r2Item.key, expiresSeconds = 86400)
+                    } catch (_: Exception) {
+                        ""
+                    }
+                    val enrichedItem = r2Item.copy(downloadUrl = presignedUrl.ifEmpty { null })
+                    matchedR2Items.add(enrichedItem)
+
+                    val isVideo = itemType == CloudFileType.VIDEO ||
+                            r2Item.mimeType.startsWith("video/") ||
+                            r2Item.name.endsWith(".mp4", ignoreCase = true) ||
+                            r2Item.name.endsWith(".mov", ignoreCase = true) ||
+                            r2Item.name.endsWith(".mkv", ignoreCase = true) ||
+                            r2Item.name.endsWith(".webm", ignoreCase = true)
+
+                    val isImage = itemType == CloudFileType.IMAGE ||
+                            r2Item.mimeType.startsWith("image/")
+
+                    if (isImage || isVideo) {
+                        val stableId = (r2Item.key.hashCode().toLong() and 0x7FFFFFFFL) + 2_000_000_000L
+                        matchedMediaItems.add(
+                            MediaItem(
+                                id = stableId,
+                                uriString = presignedUrl,
+                                name = r2Item.name,
+                                path = r2Item.key,
+                                size = r2Item.size,
+                                dateAdded = if (r2Item.lastModified > 0) r2Item.lastModified / 1000 else System.currentTimeMillis() / 1000,
+                                dateModified = if (r2Item.lastModified > 0) r2Item.lastModified else System.currentTimeMillis(),
+                                mimeType = if (r2Item.mimeType.isNotEmpty()) r2Item.mimeType else if (isVideo) "video/mp4" else "image/jpeg",
+                                isVideo = isVideo,
+                                albumName = r2Item.key.substringBeforeLast('/', "Cloud"),
+                                isFavorite = false,
+                                isCloud = true,
+                                cloudKey = r2Item.key
+                            )
+                        )
+                    }
+                }
+            }
+
+            if (!isTruncated || currentToken.isNullOrBlank()) {
+                break
+            }
+        }
+
+        Result.success(
+            CloudMediaPage(
+                items = matchedMediaItems,
+                folders = emptyList(),
+                r2Items = matchedR2Items,
+                nextContinuationToken = currentToken,
+                isTruncated = isTruncated && !currentToken.isNullOrBlank()
+            )
+        )
+    }
+
+    override suspend fun listCloudMediaPage(
+        prefix: String,
+        continuationToken: String?,
+        pageSize: Int
+    ): Result<CloudMediaPage> = listFolderPage(prefix, continuationToken, pageSize)
 
     override suspend fun uploadFile(
         fileName: String,

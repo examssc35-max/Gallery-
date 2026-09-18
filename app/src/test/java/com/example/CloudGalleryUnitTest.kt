@@ -262,5 +262,113 @@ class CloudGalleryUnitTest {
         assertNotNull(response.toolCall)
         assertEquals("findDuplicates", response.toolCall?.toolName)
     }
+
+    @Test
+    fun `test CloudFileTypeResolver resolves categories correctly`() {
+        val imageType = com.example.domain.model.CloudFileTypeResolver.resolve("image/jpeg", "vacation/2026/beach.jpg")
+        assertEquals(com.example.domain.model.CloudFileType.IMAGE, imageType)
+
+        val videoType = com.example.domain.model.CloudFileTypeResolver.resolve("video/mp4", "drone_footage/clip.mp4")
+        assertEquals(com.example.domain.model.CloudFileType.VIDEO, videoType)
+
+        val audioType = com.example.domain.model.CloudFileTypeResolver.resolve("audio/mpeg", "podcasts/episode1.mp3")
+        assertEquals(com.example.domain.model.CloudFileType.AUDIO, audioType)
+
+        val docType = com.example.domain.model.CloudFileTypeResolver.resolve("application/pdf", "receipts/invoice.pdf")
+        assertEquals(com.example.domain.model.CloudFileType.DOCUMENT, docType)
+
+        val archiveType = com.example.domain.model.CloudFileTypeResolver.resolve("application/zip", "backup.zip")
+        assertEquals(com.example.domain.model.CloudFileType.ARCHIVE, archiveType)
+
+        val folderType = com.example.domain.model.CloudFileTypeResolver.resolve(null, "photos/")
+        assertEquals(com.example.domain.model.CloudFileType.FOLDER, folderType)
+    }
+
+    @Test
+    fun `test global file type filter does not mutate folder prefix and filters correctly`() {
+        // Sample R2 items representing a bucket with root files and subfolder files
+        val allBucketItems = listOf(
+            com.example.domain.model.R2Item(
+                key = "photos/",
+                name = "photos",
+                size = 0L,
+                lastModified = 100L,
+                isFolder = true
+            ),
+            com.example.domain.model.R2Item(
+                key = "videos/",
+                name = "videos",
+                size = 0L,
+                lastModified = 100L,
+                isFolder = true
+            ),
+            com.example.domain.model.R2Item(
+                key = "notes.txt",
+                name = "notes.txt",
+                size = 500L,
+                lastModified = 200L,
+                isFolder = false,
+                mimeType = "text/plain"
+            ),
+            com.example.domain.model.R2Item(
+                key = "photos/summer.jpg",
+                name = "summer.jpg",
+                size = 204800L,
+                lastModified = 300L,
+                isFolder = false,
+                mimeType = "image/jpeg"
+            ),
+            com.example.domain.model.R2Item(
+                key = "videos/birthday.mp4",
+                name = "birthday.mp4",
+                size = 5000000L,
+                lastModified = 400L,
+                isFolder = false,
+                mimeType = "video/mp4"
+            )
+        )
+
+        // 1. Folder Browser at root:
+        // Shows root folders ("photos/", "videos/") and root files ("notes.txt")
+        var currentPrefix = ""
+        var activeFilter: com.example.domain.model.CloudFileType? = null
+
+        val rootItems = allBucketItems.filter {
+            if (activeFilter != null) {
+                !it.isFolder && it.fileType == activeFilter
+            } else {
+                // Folder browser: direct children of root
+                val key = it.key
+                !key.substringAfter('/').contains('/') && (key.endsWith('/') || !key.contains('/'))
+            }
+        }
+        assertEquals(3, rootItems.size)
+        assertTrue(rootItems.any { it.name == "photos" && it.isFolder })
+        assertTrue(rootItems.any { it.name == "videos" && it.isFolder })
+        assertTrue(rootItems.any { it.name == "notes.txt" && !it.isFolder })
+
+        // 2. Global File-Type Filter: "Photos" is tapped
+        // CRITICAL: currentPrefix remains "" (Bucket Root). activeFilter becomes IMAGE.
+        activeFilter = com.example.domain.model.CloudFileType.IMAGE
+        assertEquals("", currentPrefix) // Current prefix MUST NEVER change when selecting file type filter!
+
+        val globalPhotos = allBucketItems.filter { !it.isFolder && it.fileType == activeFilter }
+        assertEquals(1, globalPhotos.size)
+        assertEquals("summer.jpg", globalPhotos[0].name)
+        assertEquals("photos/summer.jpg", globalPhotos[0].key)
+
+        // 3. Global File-Type Filter: "Videos" is tapped
+        activeFilter = com.example.domain.model.CloudFileType.VIDEO
+        assertEquals("", currentPrefix) // Still at Bucket Root!
+
+        val globalVideos = allBucketItems.filter { !it.isFolder && it.fileType == activeFilter }
+        assertEquals(1, globalVideos.size)
+        assertEquals("birthday.mp4", globalVideos[0].name)
+        assertEquals("videos/birthday.mp4", globalVideos[0].key)
+
+        // 4. Reset to "All"
+        activeFilter = null
+        assertEquals("", currentPrefix)
+    }
 }
 

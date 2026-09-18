@@ -78,6 +78,9 @@ object CloudFileTypeResolver {
         }
 
         val cleanName = fileNameOrPath.substringBefore('?').substringBefore('#')
+        if (cleanName.endsWith('/')) {
+            return CloudFileType.FOLDER
+        }
         val ext = cleanName.substringAfterLast('.', "").lowercase(Locale.ROOT)
 
         return when {

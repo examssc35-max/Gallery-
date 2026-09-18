@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
@@ -73,6 +74,7 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -171,6 +173,14 @@ fun CloudTabScreen(
     val gridState = rememberLazyGridState()
     val listState = rememberLazyListState()
 
+    BackHandler(enabled = uiState.isSelectionMode || uiState.fileTypeFilter != null || uiState.currentPrefix.isNotEmpty()) {
+        when {
+            uiState.isSelectionMode -> viewModel.clearSelection()
+            uiState.fileTypeFilter != null -> viewModel.setFileTypeFilter(null)
+            uiState.currentPrefix.isNotEmpty() -> viewModel.navigateUp()
+        }
+    }
+
     Box(modifier = modifier.fillMaxSize()) {
         Column(modifier = Modifier.fillMaxSize()) {
 
@@ -200,7 +210,7 @@ fun CloudTabScreen(
                 breadcrumbs = viewModel.getBreadcrumbs(),
                 onBreadcrumbClick = { prefix -> viewModel.navigateToFolder(prefix) },
                 onNavigateUp = { viewModel.navigateUp() },
-                canNavigateUp = uiState.currentPrefix.isNotEmpty()
+                canNavigateUp = uiState.currentPrefix.isNotEmpty() || uiState.fileTypeFilter != null
             )
 
             // Selection Mode Bar
@@ -772,29 +782,51 @@ private fun FileTypeFilterChips(
         horizontalArrangement = Arrangement.spacedBy(6.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
+        val isAllSelected = activeFilter == null
         FilterChip(
-            selected = activeFilter == null,
+            selected = isAllSelected,
             onClick = { onSelectFilter(null) },
-            label = { Text("All", fontSize = 12.sp) },
+            label = {
+                Text(
+                    text = "All",
+                    fontSize = 12.sp,
+                    fontWeight = if (isAllSelected) FontWeight.Bold else FontWeight.Normal
+                )
+            },
+            colors = FilterChipDefaults.filterChipColors(
+                selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
+            ),
             modifier = Modifier.testTag("chip_all")
         )
 
         CloudFileType.values().forEach { type ->
             if (type != CloudFileType.FOLDER) {
+                val isSelected = activeFilter == type
                 FilterChip(
-                    selected = activeFilter == type,
+                    selected = isSelected,
                     onClick = {
-                        onSelectFilter(if (activeFilter == type) null else type)
+                        onSelectFilter(if (isSelected) null else type)
                     },
                     leadingIcon = {
                         Icon(
                             imageVector = CloudFileTypeResolver.getIcon(type),
                             contentDescription = null,
-                            tint = CloudFileTypeResolver.getIconColor(type),
+                            tint = if (isSelected) MaterialTheme.colorScheme.primary else CloudFileTypeResolver.getIconColor(type),
                             modifier = Modifier.size(14.dp)
                         )
                     },
-                    label = { Text(type.displayName, fontSize = 12.sp) },
+                    label = {
+                        Text(
+                            text = type.displayName,
+                            fontSize = 12.sp,
+                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                        )
+                    },
+                    colors = FilterChipDefaults.filterChipColors(
+                        selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                        selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
+                    ),
                     modifier = Modifier.testTag("chip_${type.name.lowercase()}")
                 )
             }
@@ -1532,7 +1564,7 @@ private fun CloudEmptyView(
             Text(
                 text = when {
                     searchQuery.isNotEmpty() -> "Try searching with a different keyword"
-                    activeFilter != null -> "No ${activeFilter.displayName.lowercase()} in ${if (currentPrefix.isEmpty()) "bucket root" else currentPrefix}"
+                    activeFilter != null -> "No ${activeFilter.displayName.lowercase()} found across your Cloudflare R2 bucket"
                     currentPrefix.isEmpty() -> "Your Cloudflare R2 bucket has no files in root"
                     else -> "Path: $currentPrefix"
                 },

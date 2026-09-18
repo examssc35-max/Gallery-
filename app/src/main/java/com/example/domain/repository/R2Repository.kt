@@ -1,6 +1,7 @@
 package com.example.domain.repository
 
 import com.example.data.local.R2Credentials
+import com.example.domain.model.CloudFileType
 import com.example.domain.model.MediaItem
 import com.example.domain.model.R2Item
 import com.example.domain.model.StorageUsage
@@ -25,6 +26,16 @@ interface R2Repository {
     suspend fun calculateStorageUsage(
         onProgress: (scannedObjects: Int, scannedBytes: Long) -> Unit = { _, _ -> }
     ): Result<StorageUsage>
+    suspend fun listFolderPage(
+        prefix: String = "",
+        continuationToken: String? = null,
+        pageSize: Int = 60
+    ): Result<CloudMediaPage>
+    suspend fun listGlobalMediaPage(
+        fileType: CloudFileType,
+        continuationToken: String? = null,
+        targetPageSize: Int = 60
+    ): Result<CloudMediaPage>
     suspend fun listCloudMediaPage(
         prefix: String = "",
         continuationToken: String? = null,
