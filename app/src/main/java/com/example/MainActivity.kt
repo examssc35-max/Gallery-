@@ -7,6 +7,12 @@ import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Surface
+import androidx.compose.ui.graphics.Color
+import androidx.navigation.compose.currentBackStackEntryAsState
+import com.example.data.local.BackgroundStyle
+import com.example.data.local.ThemeAccent
+import com.example.data.local.WaterDropSettings
+import com.example.ui.theme.DynamicAppBackground
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -116,25 +122,45 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             val themeMode by preferencesManager.themeModeFlow.collectAsState(initial = AppThemeMode.SYSTEM)
+            val themeAccent by preferencesManager.themeAccentFlow.collectAsState(initial = ThemeAccent.BLUE)
+            val bgStyle by preferencesManager.backgroundStyleFlow.collectAsState(initial = BackgroundStyle.DEFAULT)
+            val useDynamicColors by preferencesManager.useDynamicColorsFlow.collectAsState(initial = true)
+            val smoothAnimations by preferencesManager.smoothAnimationsFlow.collectAsState(initial = true)
+            val waterDropSettings by preferencesManager.waterDropSettingsFlow.collectAsState(initial = WaterDropSettings())
+
             val isDarkTheme = when (themeMode) {
                 AppThemeMode.SYSTEM -> isSystemInDarkTheme()
                 AppThemeMode.LIGHT -> false
                 AppThemeMode.DARK -> true
             }
 
-            MyApplicationTheme(darkTheme = isDarkTheme) {
-                Surface(modifier = Modifier.fillMaxSize()) {
+            MyApplicationTheme(
+                darkTheme = isDarkTheme,
+                dynamicColor = useDynamicColors,
+                accent = themeAccent,
+                backgroundStyle = bgStyle,
+                smoothAnimations = smoothAnimations,
+                waterDropSettings = waterDropSettings
+            ) {
+                Surface(
+                    modifier = Modifier.fillMaxSize(),
+                    color = Color.Transparent
+                ) {
                     val navController = rememberNavController()
+                    val navBackStackEntry by navController.currentBackStackEntryAsState()
+                    val currentRoute = navBackStackEntry?.destination?.route
+                    val isViewerActive = currentRoute?.startsWith("media_viewer") == true
 
-                    // Shared state for media viewer list
-                    var activeViewerList by remember { mutableStateOf<List<MediaItem>>(emptyList()) }
-                    var activeViewerIndex by remember { mutableIntStateOf(0) }
-                    var activeViewerAutoPlayVideo by remember { mutableStateOf(false) }
+                    DynamicAppBackground(isViewerActive = isViewerActive) {
+                        // Shared state for media viewer list
+                        var activeViewerList by remember { mutableStateOf<List<MediaItem>>(emptyList()) }
+                        var activeViewerIndex by remember { mutableIntStateOf(0) }
+                        var activeViewerAutoPlayVideo by remember { mutableStateOf(false) }
 
-                    NavHost(
-                        navController = navController,
-                        startDestination = NavRoute.Gallery.route
-                    ) {
+                        NavHost(
+                            navController = navController,
+                            startDestination = NavRoute.Gallery.route
+                        ) {
                         composable(NavRoute.Gallery.route) {
                             GalleryScreen(
                                 viewModel = galleryViewModel,
@@ -197,7 +223,7 @@ class MainActivity : ComponentActivity() {
                         composable(NavRoute.Backup.route) {
                             BackupScreen(
                                 viewModel = backupViewModel,
-                                onNavigateToSettings = { navController.navigate(NavRoute.Settings.route) },
+                                onNavigateToSettings = { navController.navigate(NavRoute.ConnectedServices.route) },
                                 onBack = { navController.popBackStack() }
                             )
                         }
@@ -205,7 +231,7 @@ class MainActivity : ComponentActivity() {
                         composable(NavRoute.Cloud.route) {
                             CloudBrowserScreen(
                                 viewModel = cloudViewModel,
-                                onNavigateToSettings = { navController.navigate(NavRoute.Settings.route) },
+                                onNavigateToSettings = { navController.navigate(NavRoute.ConnectedServices.route) },
                                 onBack = { navController.popBackStack() }
                             )
                         }
@@ -219,6 +245,8 @@ class MainActivity : ComponentActivity() {
                                 onNavigateToSmartCollectionsSettings = { navController.navigate(NavRoute.SmartCollectionsSettings.route) },
                                 onNavigateToTheme = { navController.navigate(NavRoute.ThemeSettings.route) },
                                 onNavigateToCloudStorage = { navController.navigate(NavRoute.ConnectedServices.route) },
+                                onNavigateToBackup = { navController.navigate(NavRoute.Backup.route) },
+                                onNavigateToAiAssistant = { navController.navigate(NavRoute.AiAssistant.route) },
                                 onBack = { navController.popBackStack() }
                             )
                         }
@@ -349,4 +377,5 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
+}
 }

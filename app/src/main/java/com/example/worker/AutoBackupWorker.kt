@@ -17,11 +17,19 @@ class AutoBackupWorker(
 ) : CoroutineWorker(appContext, workerParams) {
 
     override suspend fun doWork(): Result {
+        if (isStopped) return Result.retry()
         return try {
             val db = AppDatabase.getDatabase(applicationContext)
             val prefs = PreferencesManager(applicationContext)
             val r2Client = R2Client()
             val r2Repo = R2RepositoryImpl(applicationContext, r2Client, prefs)
+            val creds = r2Repo.getCredentials()
+            val isConnected = creds.isVerified || (creds.secretAccessKey.isNotBlank() && creds.bucketName.isNotBlank() && creds.accountId.isNotBlank())
+            if (!isConnected) {
+                // If not connected, cannot perform background backup
+                return Result.success()
+            }
+
             val mediaDataSource = MediaStoreDataSource(applicationContext)
             val mediaRepo = MediaRepositoryImpl(mediaDataSource, db)
             val backupRepo = BackupRepositoryImpl(
@@ -32,10 +40,12 @@ class AutoBackupWorker(
                 preferencesManager = prefs
             )
 
-            backupRepo.runBackupPass()
+            backupRepo.runBackupPass(force = false)
             Result.success()
         } catch (e: Exception) {
-            if (runAttemptCount < 3) {
+            if (isStopped) {
+                Result.retry()
+            } else if (runAttemptCount < 3) {
                 Result.retry()
             } else {
                 Result.failure()

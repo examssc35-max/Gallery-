@@ -123,15 +123,27 @@ class BackupRepositoryImpl(
     }
 
     override suspend fun runBackupPass(
+        force: Boolean,
         onProgress: (current: Int, total: Int, item: MediaItem) -> Unit
     ): Int = withContext(Dispatchers.IO) {
         val settings = getBackupSettings()
-        if (!settings.isAutoBackupEnabled) return@withContext 0
+        if (!settings.isAutoBackupEnabled && !force) return@withContext 0
 
         val creds = r2Repository.getCredentials()
-        if (creds.secretAccessKey.isEmpty() || creds.bucketName.isEmpty()) return@withContext 0
+        val isConnected = creds.isVerified || (creds.secretAccessKey.isNotBlank() && creds.bucketName.isNotBlank() && creds.accountId.isNotBlank())
+        if (!isConnected) {
+            if (force) {
+                throw IllegalStateException("Cloudflare R2 is not connected")
+            }
+            return@withContext 0
+        }
 
-        val allItems = mediaRepository.loadMediaItems()
+        val allItems = try {
+            mediaRepository.loadMediaItems()
+        } catch (e: Exception) {
+            emptyList()
+        }
+
         val eligible = allItems.filter { item ->
             (item.isVideo && settings.backupVideos) || (!item.isVideo && settings.backupPhotos)
         }
@@ -140,6 +152,9 @@ class BackupRepositoryImpl(
         var successCount = 0
 
         for ((index, item) in unbacked.withIndex()) {
+            if (!kotlin.coroutines.coroutineContext[kotlinx.coroutines.Job]?.isActive!!) {
+                break
+            }
             onProgress(index + 1, unbacked.size, item)
             val result = uploadSingleMedia(item)
             if (result is UploadResult.Success || result is UploadResult.AlreadyBackedUp) {
@@ -158,13 +173,31 @@ class BackupRepositoryImpl(
 
     override suspend fun retryFailedUploads() = withContext(Dispatchers.IO) {
         val failed = dao.getRecordsByStatus(BackupStatus.FAILED.name)
-        val allMedia = mediaRepository.loadMediaItems().associateBy { it.id }
+        val allMedia = try {
+            mediaRepository.loadMediaItems().associateBy { it.id }
+        } catch (e: Exception) {
+            emptyMap()
+        }
 
+        var anySuccess = false
         for (record in failed) {
             val item = allMedia[record.mediaStoreId]
             if (item != null) {
-                uploadSingleMedia(item)
+                val res = uploadSingleMedia(item)
+                if (res is UploadResult.Success || res is UploadResult.AlreadyBackedUp) {
+                    anySuccess = true
+                }
+            } else {
+                // Stale record: local media was deleted
+                dao.deleteById(record.mediaStoreId)
             }
+        }
+
+        if (anySuccess) {
+            val settings = getBackupSettings()
+            preferencesManager.updateBackupSettings(
+                settings.copy(lastBackupTime = System.currentTimeMillis())
+            )
         }
     }
 
@@ -174,17 +207,32 @@ class BackupRepositoryImpl(
 
     override suspend fun getBackupStats(): BackupStats = withContext(Dispatchers.IO) {
         val allRecords = dao.getAllRecords()
-        val backedUp = allRecords.count { it.status == BackupStatus.COMPLETED.name }
-        val pending = allRecords.count { it.status == BackupStatus.PENDING.name }
-        val uploading = allRecords.count { it.status == BackupStatus.UPLOADING.name }
-        val failed = allRecords.count { it.status == BackupStatus.FAILED.name }
+        val completedRecords = allRecords.filter { it.status == BackupStatus.COMPLETED.name }
+        val failedRecords = allRecords.filter { it.status == BackupStatus.FAILED.name }
+        val uploadingRecords = allRecords.filter { it.status == BackupStatus.UPLOADING.name }
         val settings = getBackupSettings()
 
+        val allMedia = try {
+            mediaRepository.loadMediaItems()
+        } catch (e: Exception) {
+            emptyList()
+        }
+
+        val completedIds = completedRecords.associateBy { it.mediaStoreId }
+        val eligible = allMedia.filter { item ->
+            (item.isVideo && settings.backupVideos) || (!item.isVideo && settings.backupPhotos)
+        }
+
+        val pendingCount = eligible.count { item ->
+            val record = completedIds[item.id]
+            record == null || record.fileSize != item.size || record.dateModified != item.dateModified
+        }
+
         BackupStats(
-            backedUpCount = backedUp,
-            pendingCount = pending,
-            uploadingCount = uploading,
-            failedCount = failed,
+            backedUpCount = completedRecords.size,
+            pendingCount = pendingCount,
+            uploadingCount = uploadingRecords.size,
+            failedCount = failedRecords.size,
             lastBackupTime = settings.lastBackupTime
         )
     }
@@ -193,6 +241,7 @@ class BackupRepositoryImpl(
         val workManager = WorkManager.getInstance(context)
         if (!settings.isAutoBackupEnabled) {
             workManager.cancelUniqueWork(AutoBackupWorker.WORK_NAME_PERIODIC)
+            workManager.cancelUniqueWork(AutoBackupWorker.WORK_NAME_ONETIME)
             return
         }
 
@@ -218,16 +267,6 @@ class BackupRepositoryImpl(
             AutoBackupWorker.WORK_NAME_PERIODIC,
             ExistingPeriodicWorkPolicy.UPDATE,
             periodicRequest
-        )
-
-        // Also enqueue a one-time work immediate sync
-        val oneTimeRequest = OneTimeWorkRequestBuilder<AutoBackupWorker>()
-            .setConstraints(constraints)
-            .build()
-        workManager.enqueueUniqueWork(
-            AutoBackupWorker.WORK_NAME_ONETIME,
-            ExistingWorkPolicy.REPLACE,
-            oneTimeRequest
         )
     }
 }

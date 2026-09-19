@@ -16,10 +16,13 @@ import kotlinx.coroutines.launch
 data class BackupUiState(
     val settings: BackupSettings = BackupSettings(),
     val credentials: R2Credentials = R2Credentials(),
+    val isR2Connected: Boolean = false,
     val stats: BackupStats = BackupStats(0, 0, 0, 0, 0L),
     val records: List<BackupRecordEntity> = emptyList(),
     val isRunningBackup: Boolean = false,
     val currentBackupProgress: String? = null,
+    val progressCurrent: Int = 0,
+    val progressTotal: Int = 0,
     val statusMessage: String? = null
 )
 
@@ -33,6 +36,7 @@ class BackupViewModel(
 
     init {
         observeData()
+        refreshStats()
     }
 
     private fun observeData() {
@@ -43,7 +47,11 @@ class BackupViewModel(
         }
         viewModelScope.launch {
             r2Repository.credentialsFlow.collect { creds ->
-                _uiState.value = _uiState.value.copy(credentials = creds)
+                val connected = creds.isVerified || (creds.secretAccessKey.isNotBlank() && creds.bucketName.isNotBlank() && creds.accountId.isNotBlank())
+                _uiState.value = _uiState.value.copy(
+                    credentials = creds,
+                    isR2Connected = connected
+                )
             }
         }
         viewModelScope.launch {
@@ -63,8 +71,15 @@ class BackupViewModel(
 
     fun toggleAutoBackup(enabled: Boolean) {
         viewModelScope.launch {
+            if (enabled && !_uiState.value.isR2Connected) {
+                _uiState.value = _uiState.value.copy(
+                    statusMessage = "Connect Cloudflare R2 to enable automatic backup"
+                )
+                return@launch
+            }
             val updated = _uiState.value.settings.copy(isAutoBackupEnabled = enabled)
             backupRepository.updateBackupSettings(updated)
+            refreshStats()
         }
     }
 
@@ -72,6 +87,7 @@ class BackupViewModel(
         viewModelScope.launch {
             val updated = _uiState.value.settings.copy(backupVideos = enabled)
             backupRepository.updateBackupSettings(updated)
+            refreshStats()
         }
     }
 
@@ -79,6 +95,7 @@ class BackupViewModel(
         viewModelScope.launch {
             val updated = _uiState.value.settings.copy(backupPhotos = enabled)
             backupRepository.updateBackupSettings(updated)
+            refreshStats()
         }
     }
 
@@ -98,38 +115,77 @@ class BackupViewModel(
 
     fun triggerBackupNow() {
         viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(
-                isRunningBackup = true,
-                currentBackupProgress = "Starting backup..."
-            )
-
-            val uploadedCount = backupRepository.runBackupPass { current, total, item ->
+            if (!_uiState.value.isR2Connected) {
                 _uiState.value = _uiState.value.copy(
-                    currentBackupProgress = "Backing up $current of $total: ${item.name}"
+                    statusMessage = "Connect Cloudflare R2 to enable automatic backup"
                 )
+                return@launch
             }
 
             _uiState.value = _uiState.value.copy(
-                isRunningBackup = false,
-                currentBackupProgress = null,
-                statusMessage = if (uploadedCount > 0) "Backup complete: $uploadedCount items uploaded" else "Everything is up to date!"
+                isRunningBackup = true,
+                currentBackupProgress = "Scanning media...",
+                progressCurrent = 0,
+                progressTotal = 0
             )
+
+            try {
+                val uploadedCount = backupRepository.runBackupPass(force = true) { current, total, item ->
+                    _uiState.value = _uiState.value.copy(
+                        currentBackupProgress = "Backing up $current of $total: ${item.name}",
+                        progressCurrent = current,
+                        progressTotal = total
+                    )
+                }
+
+                _uiState.value = _uiState.value.copy(
+                    isRunningBackup = false,
+                    currentBackupProgress = null,
+                    progressCurrent = 0,
+                    progressTotal = 0,
+                    statusMessage = if (uploadedCount > 0) "Backup complete: $uploadedCount items uploaded" else "Everything is up to date!"
+                )
+            } catch (e: Exception) {
+                _uiState.value = _uiState.value.copy(
+                    isRunningBackup = false,
+                    currentBackupProgress = null,
+                    progressCurrent = 0,
+                    progressTotal = 0,
+                    statusMessage = "Backup failed: ${e.localizedMessage ?: e.message ?: "Network error"}"
+                )
+            }
             refreshStats()
         }
     }
 
     fun retryFailed() {
         viewModelScope.launch {
+            if (!_uiState.value.isR2Connected) {
+                _uiState.value = _uiState.value.copy(
+                    statusMessage = "Connect Cloudflare R2 to enable automatic backup"
+                )
+                return@launch
+            }
+
             _uiState.value = _uiState.value.copy(
                 isRunningBackup = true,
                 currentBackupProgress = "Retrying failed uploads..."
             )
-            backupRepository.retryFailedUploads()
-            _uiState.value = _uiState.value.copy(
-                isRunningBackup = false,
-                currentBackupProgress = null,
-                statusMessage = "Retried failed uploads"
-            )
+
+            try {
+                backupRepository.retryFailedUploads()
+                _uiState.value = _uiState.value.copy(
+                    isRunningBackup = false,
+                    currentBackupProgress = null,
+                    statusMessage = "Retried failed uploads"
+                )
+            } catch (e: Exception) {
+                _uiState.value = _uiState.value.copy(
+                    isRunningBackup = false,
+                    currentBackupProgress = null,
+                    statusMessage = "Retry failed: ${e.localizedMessage ?: e.message}"
+                )
+            }
             refreshStats()
         }
     }

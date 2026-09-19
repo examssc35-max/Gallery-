@@ -29,7 +29,10 @@ interface BackupRepository {
         item: MediaItem,
         onProgress: (bytes: Long, total: Long) -> Unit = { _, _ -> }
     ): UploadResult
-    suspend fun runBackupPass(onProgress: (current: Int, total: Int, item: MediaItem) -> Unit = { _, _, _ -> }): Int
+    suspend fun runBackupPass(
+        force: Boolean = false,
+        onProgress: (current: Int, total: Int, item: MediaItem) -> Unit = { _, _, _ -> }
+    ): Int
     suspend fun retryFailedUploads()
     suspend fun clearHistory()
     suspend fun getBackupStats(): BackupStats

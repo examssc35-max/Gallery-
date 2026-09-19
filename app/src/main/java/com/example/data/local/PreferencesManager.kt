@@ -29,7 +29,7 @@ data class R2Credentials(
 data class BackupSettings(
     val isAutoBackupEnabled: Boolean = false,
     val backupVideos: Boolean = true,
-    val backupPhotos: Boolean = false,
+    val backupPhotos: Boolean = true,
     val wifiOnly: Boolean = true,
     val requireCharging: Boolean = false,
     val lastBackupTime: Long = 0L
@@ -57,7 +57,8 @@ enum class ThemeAccent(val label: String, val hexColor: Long) {
     EMERALD("Emerald", 0xFF10B981),
     TEAL("Teal", 0xFF00897B),
     NAVY("Navy", 0xFF37474F),
-    AMBER("Amber", 0xFFFFA000)
+    AMBER("Amber", 0xFFFFA000),
+    CYAN("Cyan", 0xFF00B4D8)
 }
 
 enum class BackgroundStyle(val label: String) {
@@ -68,7 +69,8 @@ enum class BackgroundStyle(val label: String) {
     MINIMAL("Minimal"),
     BLUR("Blur"),
     DARK("Dark"),
-    CHERRY_BLOSSOM("Cherry Blossom")
+    CHERRY_BLOSSOM("Cherry Blossom"),
+    WATER_DROP("Water Drop")
 }
 
 enum class ThemePreset(
@@ -87,8 +89,60 @@ enum class ThemePreset(
     MINIMAL("Minimal", AppThemeMode.LIGHT, ThemeAccent.NAVY, BackgroundStyle.MINIMAL),
     GLASS("Glass", AppThemeMode.DARK, ThemeAccent.BLUE, BackgroundStyle.GLASS),
     NIGHT("Night", AppThemeMode.DARK, ThemeAccent.BLUE, BackgroundStyle.DARK),
-    CHERRY_BLOSSOM("Cherry Blossom", AppThemeMode.LIGHT, ThemeAccent.MAGENTA, BackgroundStyle.CHERRY_BLOSSOM)
+    CHERRY_BLOSSOM("Cherry Blossom", AppThemeMode.LIGHT, ThemeAccent.MAGENTA, BackgroundStyle.CHERRY_BLOSSOM),
+    WATER_DROP("Water Drop", AppThemeMode.DARK, ThemeAccent.CYAN, BackgroundStyle.WATER_DROP)
 }
+
+enum class WaterAnimationIntensity(val label: String, val dropCount: Int, val speedMultiplier: Float) {
+    LOW("Low", dropCount = 4, speedMultiplier = 0.65f),
+    MEDIUM("Medium", dropCount = 8, speedMultiplier = 1.0f),
+    HIGH("High", dropCount = 14, speedMultiplier = 1.35f)
+}
+
+enum class WaterColor(
+    val label: String,
+    val primaryHex: Long,
+    val secondaryHex: Long,
+    val surfaceHex: Long,
+    val dropletHex: Long
+) {
+    CYAN_LAGOON(
+        label = "Cyan Lagoon",
+        primaryHex = 0xFF00B4D8,
+        secondaryHex = 0xFF90E0EF,
+        surfaceHex = 0xFF091E2E,
+        dropletHex = 0xFF38BDF8
+    ),
+    DEEP_OCEAN(
+        label = "Deep Ocean",
+        primaryHex = 0xFF0077B6,
+        secondaryHex = 0xFF023E8A,
+        surfaceHex = 0xFF061423,
+        dropletHex = 0xFF0096C7
+    ),
+    CRYSTAL_CLEAR(
+        label = "Crystal Clear",
+        primaryHex = 0xFF38BDF8,
+        secondaryHex = 0xFFBAE6FD,
+        surfaceHex = 0xFF081C2E,
+        dropletHex = 0xFF7DD3FC
+    ),
+    ARCTIC_FROST(
+        label = "Arctic Frost",
+        primaryHex = 0xFF06B6D4,
+        secondaryHex = 0xFFCFFAFE,
+        surfaceHex = 0xFF051C26,
+        dropletHex = 0xFF22D3EE
+    )
+}
+
+data class WaterDropSettings(
+    val animationEnabled: Boolean = true,
+    val intensity: WaterAnimationIntensity = WaterAnimationIntensity.MEDIUM,
+    val rippleEnabled: Boolean = true,
+    val blurEnabled: Boolean = true,
+    val waterColor: WaterColor = WaterColor.CYAN_LAGOON
+)
 
 class PreferencesManager(
     private val context: Context,
@@ -143,6 +197,13 @@ class PreferencesManager(
         val KEY_SMART_COLLECTIONS_REQUIRE_CHARGING = booleanPreferencesKey("smart_collections_require_charging")
         val KEY_SMART_COLLECTIONS_MODEL_INSTALLED = booleanPreferencesKey("smart_collections_model_installed")
         val KEY_SMART_COLLECTIONS_MODEL_VERSION = stringPreferencesKey("smart_collections_model_version")
+
+        // Water Drop Theme Settings
+        val KEY_WATER_DROP_ANIMATION_ENABLED = booleanPreferencesKey("water_drop_anim_enabled")
+        val KEY_WATER_DROP_INTENSITY = stringPreferencesKey("water_drop_intensity")
+        val KEY_WATER_DROP_RIPPLE_ENABLED = booleanPreferencesKey("water_drop_ripple_enabled")
+        val KEY_WATER_DROP_BLUR_ENABLED = booleanPreferencesKey("water_drop_blur_enabled")
+        val KEY_WATER_DROP_COLOR = stringPreferencesKey("water_drop_color")
     }
 
     val gridColumnsFlow: Flow<Int> = context.dataStore.data.map { prefs ->
@@ -201,11 +262,59 @@ class PreferencesManager(
         prefs[KEY_SMOOTH_ANIMATIONS] ?: true
     }
 
+    val waterDropAnimationEnabledFlow: Flow<Boolean> = context.dataStore.data.map { prefs ->
+        prefs[KEY_WATER_DROP_ANIMATION_ENABLED] ?: true
+    }
+
+    val waterDropIntensityFlow: Flow<WaterAnimationIntensity> = context.dataStore.data.map { prefs ->
+        try {
+            WaterAnimationIntensity.valueOf(prefs[KEY_WATER_DROP_INTENSITY] ?: WaterAnimationIntensity.MEDIUM.name)
+        } catch (_: Exception) {
+            WaterAnimationIntensity.MEDIUM
+        }
+    }
+
+    val waterDropRippleEnabledFlow: Flow<Boolean> = context.dataStore.data.map { prefs ->
+        prefs[KEY_WATER_DROP_RIPPLE_ENABLED] ?: true
+    }
+
+    val waterDropBlurEnabledFlow: Flow<Boolean> = context.dataStore.data.map { prefs ->
+        prefs[KEY_WATER_DROP_BLUR_ENABLED] ?: true
+    }
+
+    val waterDropColorFlow: Flow<WaterColor> = context.dataStore.data.map { prefs ->
+        try {
+            WaterColor.valueOf(prefs[KEY_WATER_DROP_COLOR] ?: WaterColor.CYAN_LAGOON.name)
+        } catch (_: Exception) {
+            WaterColor.CYAN_LAGOON
+        }
+    }
+
+    val waterDropSettingsFlow: Flow<WaterDropSettings> = context.dataStore.data.map { prefs ->
+        val intensity = try {
+            WaterAnimationIntensity.valueOf(prefs[KEY_WATER_DROP_INTENSITY] ?: WaterAnimationIntensity.MEDIUM.name)
+        } catch (_: Exception) {
+            WaterAnimationIntensity.MEDIUM
+        }
+        val waterColor = try {
+            WaterColor.valueOf(prefs[KEY_WATER_DROP_COLOR] ?: WaterColor.CYAN_LAGOON.name)
+        } catch (_: Exception) {
+            WaterColor.CYAN_LAGOON
+        }
+        WaterDropSettings(
+            animationEnabled = prefs[KEY_WATER_DROP_ANIMATION_ENABLED] ?: true,
+            intensity = intensity,
+            rippleEnabled = prefs[KEY_WATER_DROP_RIPPLE_ENABLED] ?: true,
+            blurEnabled = prefs[KEY_WATER_DROP_BLUR_ENABLED] ?: true,
+            waterColor = waterColor
+        )
+    }
+
     val backupSettingsFlow: Flow<BackupSettings> = context.dataStore.data.map { prefs ->
         BackupSettings(
             isAutoBackupEnabled = prefs[KEY_AUTO_BACKUP_ENABLED] ?: false,
             backupVideos = prefs[KEY_BACKUP_VIDEOS] ?: true,
-            backupPhotos = prefs[KEY_BACKUP_PHOTOS] ?: false,
+            backupPhotos = prefs[KEY_BACKUP_PHOTOS] ?: true,
             wifiOnly = prefs[KEY_WIFI_ONLY] ?: true,
             requireCharging = prefs[KEY_REQUIRE_CHARGING] ?: false,
             lastBackupTime = prefs[KEY_LAST_BACKUP_TIME] ?: 0L
@@ -284,6 +393,45 @@ class PreferencesManager(
     suspend fun setSmoothAnimations(enabled: Boolean) {
         context.dataStore.edit { prefs ->
             prefs[KEY_SMOOTH_ANIMATIONS] = enabled
+        }
+    }
+
+    suspend fun setWaterDropAnimationEnabled(enabled: Boolean) {
+        context.dataStore.edit { prefs ->
+            prefs[KEY_WATER_DROP_ANIMATION_ENABLED] = enabled
+        }
+    }
+
+    suspend fun setWaterDropIntensity(intensity: WaterAnimationIntensity) {
+        context.dataStore.edit { prefs ->
+            prefs[KEY_WATER_DROP_INTENSITY] = intensity.name
+        }
+    }
+
+    suspend fun setWaterDropRippleEnabled(enabled: Boolean) {
+        context.dataStore.edit { prefs ->
+            prefs[KEY_WATER_DROP_RIPPLE_ENABLED] = enabled
+        }
+    }
+
+    suspend fun setWaterDropBlurEnabled(enabled: Boolean) {
+        context.dataStore.edit { prefs ->
+            prefs[KEY_WATER_DROP_BLUR_ENABLED] = enabled
+        }
+    }
+
+    suspend fun setWaterDropColor(color: WaterColor) {
+        context.dataStore.edit { prefs ->
+            prefs[KEY_WATER_DROP_COLOR] = color.name
+        }
+    }
+
+    suspend fun activateWaterDropTheme() {
+        context.dataStore.edit { prefs ->
+            prefs[KEY_THEME_PRESET] = ThemePreset.WATER_DROP.name
+            prefs[KEY_BACKGROUND_STYLE] = BackgroundStyle.WATER_DROP.name
+            prefs[KEY_THEME_ACCENT] = ThemeAccent.CYAN.name
+            prefs[KEY_USE_DYNAMIC_COLORS] = false
         }
     }
 

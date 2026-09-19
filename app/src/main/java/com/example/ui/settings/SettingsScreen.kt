@@ -64,6 +64,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.local.AppThemeMode
+import com.example.data.local.BackupSettings
 import com.example.data.local.PreferencesManager
 import com.example.data.local.R2Credentials
 import com.example.data.local.SortOrder
@@ -92,6 +93,16 @@ fun SettingsScreen(
 
     val savedCredentials by r2Repository.credentialsFlow.collectAsState(initial = R2Credentials())
     val isR2Connected = savedCredentials.secretAccessKey.isNotEmpty() && savedCredentials.bucketName.isNotEmpty()
+
+    val backupSettings by preferencesManager.backupSettingsFlow.collectAsState(initial = BackupSettings())
+    val backupSubtitle = when {
+        !isR2Connected -> "Not connected • Connect Cloudflare R2"
+        !backupSettings.isAutoBackupEnabled -> "Disabled"
+        backupSettings.backupPhotos && backupSettings.backupVideos -> "Enabled • Photos & videos to Cloudflare R2"
+        backupSettings.backupPhotos -> "Enabled • Photos to Cloudflare R2"
+        backupSettings.backupVideos -> "Enabled • Videos to Cloudflare R2"
+        else -> "Enabled • No media types selected"
+    }
 
     val themeMode by preferencesManager.themeModeFlow.collectAsState(initial = AppThemeMode.SYSTEM)
     val gridColumns by preferencesManager.gridColumnsFlow.collectAsState(initial = 3)
@@ -178,8 +189,9 @@ fun SettingsScreen(
                             icon = Icons.Default.Backup,
                             iconColor = Color(0xFF10B981),
                             title = "Automatic Backup",
-                            subtitle = "Background sync to Cloudflare R2",
-                            onClick = onNavigateToBackup
+                            subtitle = backupSubtitle,
+                            onClick = onNavigateToBackup,
+                            testTag = "settings_automatic_backup_row"
                         )
                         HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
                         SettingsRow(
@@ -363,11 +375,13 @@ private fun SettingsRow(
     iconColor: Color,
     title: String,
     subtitle: String,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    testTag: String = ""
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .then(if (testTag.isNotEmpty()) Modifier.testTag(testTag) else Modifier)
             .clickable(onClick = onClick)
             .padding(horizontal = 16.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically
