@@ -10,7 +10,9 @@ import androidx.compose.material3.Surface
 import androidx.compose.ui.graphics.Color
 import androidx.navigation.compose.currentBackStackEntryAsState
 import com.example.data.local.BackgroundStyle
+import com.example.data.local.PremiumTheme
 import com.example.data.local.ThemeAccent
+import com.example.data.local.ThemeAnimationIntensity
 import com.example.data.local.WaterDropSettings
 import com.example.ui.theme.DynamicAppBackground
 import androidx.compose.runtime.collectAsState
@@ -127,6 +129,10 @@ class MainActivity : ComponentActivity() {
             val useDynamicColors by preferencesManager.useDynamicColorsFlow.collectAsState(initial = true)
             val smoothAnimations by preferencesManager.smoothAnimationsFlow.collectAsState(initial = true)
             val waterDropSettings by preferencesManager.waterDropSettingsFlow.collectAsState(initial = WaterDropSettings())
+            val customThemeEnabled by preferencesManager.customThemeEnabledFlow.collectAsState(initial = false)
+            val selectedCustomTheme by preferencesManager.selectedCustomThemeFlow.collectAsState(initial = PremiumTheme.WATER_DROP)
+            val themeAnimationEnabled by preferencesManager.themeAnimationEnabledFlow.collectAsState(initial = true)
+            val themeAnimationIntensity by preferencesManager.themeAnimationIntensityFlow.collectAsState(initial = ThemeAnimationIntensity.MEDIUM)
 
             val isDarkTheme = when (themeMode) {
                 AppThemeMode.SYSTEM -> isSystemInDarkTheme()
@@ -140,7 +146,11 @@ class MainActivity : ComponentActivity() {
                 accent = themeAccent,
                 backgroundStyle = bgStyle,
                 smoothAnimations = smoothAnimations,
-                waterDropSettings = waterDropSettings
+                waterDropSettings = waterDropSettings,
+                isCustomThemeEnabled = customThemeEnabled,
+                selectedCustomTheme = selectedCustomTheme,
+                themeAnimationEnabled = themeAnimationEnabled,
+                themeAnimationIntensity = themeAnimationIntensity
             ) {
                 Surface(
                     modifier = Modifier.fillMaxSize(),

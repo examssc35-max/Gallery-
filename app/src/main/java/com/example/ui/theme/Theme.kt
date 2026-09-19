@@ -23,7 +23,10 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import com.example.data.local.BackgroundStyle
+import com.example.data.local.PremiumTheme
 import com.example.data.local.ThemeAccent
+import com.example.data.local.ThemeAnimationIntensity
+import com.example.data.local.WaterAnimationIntensity
 import com.example.data.local.WaterColor
 import com.example.data.local.WaterDropSettings
 
@@ -31,6 +34,10 @@ val LocalBackgroundStyle = compositionLocalOf { BackgroundStyle.DEFAULT }
 val LocalSmoothAnimations = compositionLocalOf { true }
 val LocalWaterDropSettings = compositionLocalOf { WaterDropSettings() }
 val LocalHasAppBackground = compositionLocalOf { false }
+val LocalCustomThemeEnabled = compositionLocalOf { false }
+val LocalSelectedCustomTheme = compositionLocalOf { PremiumTheme.WATER_DROP }
+val LocalThemeAnimationEnabled = compositionLocalOf { true }
+val LocalThemeAnimationIntensity = compositionLocalOf { ThemeAnimationIntensity.MEDIUM }
 
 fun getAccentColors(accent: ThemeAccent, isDark: Boolean): Pair<Color, Color> {
     return when (accent) {
@@ -93,6 +100,120 @@ fun createWaterDropColorScheme(isDark: Boolean, waterColor: WaterColor): android
     }
 }
 
+fun createIceColorScheme(isDark: Boolean): androidx.compose.material3.ColorScheme {
+    return if (isDark) {
+        darkColorScheme(
+            primary = Color(0xFF7DD3FC),
+            onPrimary = Color(0xFF082F49),
+            primaryContainer = Color(0xFF0C4A6E),
+            onPrimaryContainer = Color(0xFFBAE6FD),
+            secondary = Color(0xFF38BDF8),
+            onSecondary = Color(0xFF082F49),
+            tertiary = Color(0xFFA5F3FC),
+            onTertiary = Color(0xFF082F49),
+            background = Color(0xFF09121F),
+            onBackground = Color(0xFFF0F9FF),
+            surface = Color(0xFF0E1A2B),
+            onSurface = Color(0xFFF0F9FF),
+            surfaceVariant = Color(0xFF14243B),
+            onSurfaceVariant = Color(0xFF94A3B8)
+        )
+    } else {
+        lightColorScheme(
+            primary = Color(0xFF0284C7),
+            onPrimary = Color.White,
+            primaryContainer = Color(0xFFE0F2FE),
+            onPrimaryContainer = Color(0xFF034A6E),
+            secondary = Color(0xFF0EA5E9),
+            onSecondary = Color.White,
+            tertiary = Color(0xFF0284C7),
+            onTertiary = Color.White,
+            background = Color(0xFFF1F7FD),
+            onBackground = Color(0xFF0B1B2B),
+            surface = Color(0xFFFFFFFF),
+            onSurface = Color(0xFF0B1B2B),
+            surfaceVariant = Color(0xFFE2EFFC),
+            onSurfaceVariant = Color(0xFF334E68)
+        )
+    }
+}
+
+fun createForestColorScheme(isDark: Boolean): androidx.compose.material3.ColorScheme {
+    return if (isDark) {
+        darkColorScheme(
+            primary = Color(0xFF34D399),
+            onPrimary = Color(0xFF022C22),
+            primaryContainer = Color(0xFF064E3B),
+            onPrimaryContainer = Color(0xFFA7F3D0),
+            secondary = Color(0xFF6EE7B7),
+            onSecondary = Color(0xFF022C22),
+            tertiary = Color(0xFFFDE68A),
+            onTertiary = Color(0xFF451A03),
+            background = Color(0xFF08140C),
+            onBackground = Color(0xFFECFDF5),
+            surface = Color(0xFF0E2215),
+            onSurface = Color(0xFFECFDF5),
+            surfaceVariant = Color(0xFF142E1E),
+            onSurfaceVariant = Color(0xFF9CA3AF)
+        )
+    } else {
+        lightColorScheme(
+            primary = Color(0xFF059669),
+            onPrimary = Color.White,
+            primaryContainer = Color(0xFFD1FAE5),
+            onPrimaryContainer = Color(0xFF022C22),
+            secondary = Color(0xFF10B981),
+            onSecondary = Color.White,
+            tertiary = Color(0xFFD97706),
+            onTertiary = Color.White,
+            background = Color(0xFFF1F8F4),
+            onBackground = Color(0xFF062314),
+            surface = Color(0xFFFFFFFF),
+            onSurface = Color(0xFF062314),
+            surfaceVariant = Color(0xFFE2EFE7),
+            onSurfaceVariant = Color(0xFF264936)
+        )
+    }
+}
+
+fun createCityColorScheme(isDark: Boolean): androidx.compose.material3.ColorScheme {
+    return if (isDark) {
+        darkColorScheme(
+            primary = Color(0xFFFBBF24),
+            onPrimary = Color(0xFF451A03),
+            primaryContainer = Color(0xFF78350F),
+            onPrimaryContainer = Color(0xFFFDE68A),
+            secondary = Color(0xFF94A3B8),
+            onSecondary = Color(0xFF0F172A),
+            tertiary = Color(0xFFF59E0B),
+            onTertiary = Color(0xFF451A03),
+            background = Color(0xFF090C12),
+            onBackground = Color(0xFFF8FAFC),
+            surface = Color(0xFF111724),
+            onSurface = Color(0xFFF8FAFC),
+            surfaceVariant = Color(0xFF192233),
+            onSurfaceVariant = Color(0xFF94A3B8)
+        )
+    } else {
+        lightColorScheme(
+            primary = Color(0xFFD97706),
+            onPrimary = Color.White,
+            primaryContainer = Color(0xFFFEF3C7),
+            onPrimaryContainer = Color(0xFF451A03),
+            secondary = Color(0xFF475569),
+            onSecondary = Color.White,
+            tertiary = Color(0xFFB45309),
+            onTertiary = Color.White,
+            background = Color(0xFFF3F5F9),
+            onBackground = Color(0xFF0F172A),
+            surface = Color(0xFFFFFFFF),
+            onSurface = Color(0xFF0F172A),
+            surfaceVariant = Color(0xFFE5E9F0),
+            onSurfaceVariant = Color(0xFF334155)
+        )
+    }
+}
+
 fun createCustomColorScheme(accent: ThemeAccent, isDark: Boolean): androidx.compose.material3.ColorScheme {
     val (primary, secondary) = getAccentColors(accent, isDark)
     return if (isDark) {
@@ -124,11 +245,20 @@ fun MyApplicationTheme(
     backgroundStyle: BackgroundStyle = BackgroundStyle.DEFAULT,
     smoothAnimations: Boolean = true,
     waterDropSettings: WaterDropSettings = WaterDropSettings(),
+    isCustomThemeEnabled: Boolean = false,
+    selectedCustomTheme: PremiumTheme = PremiumTheme.WATER_DROP,
+    themeAnimationEnabled: Boolean = true,
+    themeAnimationIntensity: ThemeAnimationIntensity = ThemeAnimationIntensity.MEDIUM,
     content: @Composable () -> Unit,
 ) {
-    val isWaterDrop = backgroundStyle == BackgroundStyle.WATER_DROP || accent == ThemeAccent.CYAN
     val colorScheme = when {
-        isWaterDrop -> createWaterDropColorScheme(darkTheme, waterDropSettings.waterColor)
+        isCustomThemeEnabled -> when (selectedCustomTheme) {
+            PremiumTheme.WATER_DROP -> createWaterDropColorScheme(darkTheme, waterDropSettings.waterColor)
+            PremiumTheme.ICE -> createIceColorScheme(darkTheme)
+            PremiumTheme.FOREST -> createForestColorScheme(darkTheme)
+            PremiumTheme.CITY -> createCityColorScheme(darkTheme)
+        }
+        backgroundStyle == BackgroundStyle.WATER_DROP -> createWaterDropColorScheme(darkTheme, waterDropSettings.waterColor)
         dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
             val context = LocalContext.current
             if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
@@ -139,7 +269,11 @@ fun MyApplicationTheme(
     CompositionLocalProvider(
         LocalBackgroundStyle provides backgroundStyle,
         LocalSmoothAnimations provides smoothAnimations,
-        LocalWaterDropSettings provides waterDropSettings
+        LocalWaterDropSettings provides waterDropSettings,
+        LocalCustomThemeEnabled provides isCustomThemeEnabled,
+        LocalSelectedCustomTheme provides selectedCustomTheme,
+        LocalThemeAnimationEnabled provides themeAnimationEnabled,
+        LocalThemeAnimationIntensity provides themeAnimationIntensity
     ) {
         MaterialTheme(colorScheme = colorScheme, typography = Typography, content = content)
     }
@@ -163,6 +297,10 @@ fun DynamicAppBackground(
         return
     }
 
+    val isCustomThemeEnabled = LocalCustomThemeEnabled.current
+    val selectedCustomTheme = LocalSelectedCustomTheme.current
+    val themeAnimationEnabled = LocalThemeAnimationEnabled.current
+    val themeAnimationIntensity = LocalThemeAnimationIntensity.current
     val bgStyle = LocalBackgroundStyle.current
     val waterDropSettings = LocalWaterDropSettings.current
     val isDark = isSystemInDarkTheme()
@@ -170,8 +308,74 @@ fun DynamicAppBackground(
     val surfaceColor = MaterialTheme.colorScheme.surface
     val primaryColor = MaterialTheme.colorScheme.primary
 
+    // Media viewer check: ensure immersive, minimal, non-distracting background
+    if (isViewerActive) {
+        Box(
+            modifier = modifier
+                .fillMaxSize()
+                .background(Color(0xFF000000))
+        ) {
+            content()
+        }
+        return
+    }
+
     CompositionLocalProvider(LocalHasAppBackground provides true) {
-        if (bgStyle == BackgroundStyle.WATER_DROP) {
+        if (isCustomThemeEnabled) {
+            when (selectedCustomTheme) {
+                PremiumTheme.WATER_DROP -> {
+                    val effectiveWaterSettings = waterDropSettings.copy(
+                        animationEnabled = themeAnimationEnabled && waterDropSettings.animationEnabled,
+                        intensity = when (themeAnimationIntensity) {
+                            ThemeAnimationIntensity.LOW -> WaterAnimationIntensity.LOW
+                            ThemeAnimationIntensity.MEDIUM -> WaterAnimationIntensity.MEDIUM
+                            ThemeAnimationIntensity.HIGH -> WaterAnimationIntensity.HIGH
+                        }
+                    )
+                    WaterDropBackground(
+                        settings = effectiveWaterSettings,
+                        isDark = isDark,
+                        isViewerActive = isViewerActive,
+                        modifier = modifier
+                    ) {
+                        content()
+                    }
+                }
+                PremiumTheme.ICE -> {
+                    IceThemeBackground(
+                        isDark = isDark,
+                        animationEnabled = themeAnimationEnabled,
+                        intensity = themeAnimationIntensity,
+                        isViewerActive = isViewerActive,
+                        modifier = modifier
+                    ) {
+                        content()
+                    }
+                }
+                PremiumTheme.FOREST -> {
+                    ForestThemeBackground(
+                        isDark = isDark,
+                        animationEnabled = themeAnimationEnabled,
+                        intensity = themeAnimationIntensity,
+                        isViewerActive = isViewerActive,
+                        modifier = modifier
+                    ) {
+                        content()
+                    }
+                }
+                PremiumTheme.CITY -> {
+                    CityThemeBackground(
+                        isDark = isDark,
+                        animationEnabled = themeAnimationEnabled,
+                        intensity = themeAnimationIntensity,
+                        isViewerActive = isViewerActive,
+                        modifier = modifier
+                    ) {
+                        content()
+                    }
+                }
+            }
+        } else if (bgStyle == BackgroundStyle.WATER_DROP) {
             WaterDropBackground(
                 settings = waterDropSettings,
                 isDark = isDark,

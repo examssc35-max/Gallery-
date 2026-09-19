@@ -93,6 +93,23 @@ enum class ThemePreset(
     WATER_DROP("Water Drop", AppThemeMode.DARK, ThemeAccent.CYAN, BackgroundStyle.WATER_DROP)
 }
 
+enum class PremiumTheme(
+    val id: String,
+    val title: String,
+    val description: String
+) {
+    WATER_DROP("water_drop", "Water Drop", "Ocean-inspired fluid theme with gentle droplets"),
+    ICE("ice", "Ice", "Frosted glacial atmosphere with crystalline light reflections"),
+    FOREST("forest", "Forest", "Deep natural canopy with ambient light rays & floating leaves"),
+    CITY("city", "City", "Sophisticated night skyline with subtle moving lights")
+}
+
+enum class ThemeAnimationIntensity(val label: String, val speedMultiplier: Float) {
+    LOW("Low", 0.65f),
+    MEDIUM("Medium", 1.0f),
+    HIGH("High", 1.4f)
+}
+
 enum class WaterAnimationIntensity(val label: String, val dropCount: Int, val speedMultiplier: Float) {
     LOW("Low", dropCount = 4, speedMultiplier = 0.65f),
     MEDIUM("Medium", dropCount = 8, speedMultiplier = 1.0f),
@@ -204,6 +221,12 @@ class PreferencesManager(
         val KEY_WATER_DROP_RIPPLE_ENABLED = booleanPreferencesKey("water_drop_ripple_enabled")
         val KEY_WATER_DROP_BLUR_ENABLED = booleanPreferencesKey("water_drop_blur_enabled")
         val KEY_WATER_DROP_COLOR = stringPreferencesKey("water_drop_color")
+
+        // Premium Custom Themes
+        val KEY_CUSTOM_THEME_ENABLED = booleanPreferencesKey("custom_theme_enabled")
+        val KEY_SELECTED_CUSTOM_THEME = stringPreferencesKey("selected_custom_theme")
+        val KEY_THEME_ANIMATION_ENABLED = booleanPreferencesKey("theme_animation_enabled")
+        val KEY_THEME_ANIMATION_INTENSITY = stringPreferencesKey("theme_animation_intensity")
     }
 
     val gridColumnsFlow: Flow<Int> = context.dataStore.data.map { prefs ->
@@ -310,6 +333,45 @@ class PreferencesManager(
         )
     }
 
+    val customThemeEnabledFlow: Flow<Boolean> = context.dataStore.data.map { prefs ->
+        prefs[KEY_CUSTOM_THEME_ENABLED] ?: false
+    }
+
+    val selectedCustomThemeFlow: Flow<PremiumTheme> = context.dataStore.data.map { prefs ->
+        try {
+            val name = prefs[KEY_SELECTED_CUSTOM_THEME] ?: PremiumTheme.WATER_DROP.name
+            PremiumTheme.valueOf(name)
+        } catch (_: Exception) {
+            PremiumTheme.WATER_DROP
+        }
+    }
+
+    val themeAnimationEnabledFlow: Flow<Boolean> = context.dataStore.data.map { prefs ->
+        prefs[KEY_THEME_ANIMATION_ENABLED] ?: (prefs[KEY_WATER_DROP_ANIMATION_ENABLED] ?: true)
+    }
+
+    val themeAnimationIntensityFlow: Flow<ThemeAnimationIntensity> = context.dataStore.data.map { prefs ->
+        try {
+            val stored = prefs[KEY_THEME_ANIMATION_INTENSITY]
+            if (stored != null) {
+                ThemeAnimationIntensity.valueOf(stored)
+            } else {
+                val oldWater = prefs[KEY_WATER_DROP_INTENSITY]
+                if (oldWater != null) {
+                    when (WaterAnimationIntensity.valueOf(oldWater)) {
+                        WaterAnimationIntensity.LOW -> ThemeAnimationIntensity.LOW
+                        WaterAnimationIntensity.MEDIUM -> ThemeAnimationIntensity.MEDIUM
+                        WaterAnimationIntensity.HIGH -> ThemeAnimationIntensity.HIGH
+                    }
+                } else {
+                    ThemeAnimationIntensity.MEDIUM
+                }
+            }
+        } catch (_: Exception) {
+            ThemeAnimationIntensity.MEDIUM
+        }
+    }
+
     val backupSettingsFlow: Flow<BackupSettings> = context.dataStore.data.map { prefs ->
         BackupSettings(
             isAutoBackupEnabled = prefs[KEY_AUTO_BACKUP_ENABLED] ?: false,
@@ -375,6 +437,80 @@ class PreferencesManager(
             prefs[KEY_THEME_ACCENT] = preset.accent.name
             prefs[KEY_BACKGROUND_STYLE] = preset.bgStyle.name
             prefs[KEY_USE_DYNAMIC_COLORS] = false
+            if (preset == ThemePreset.WATER_DROP) {
+                prefs[KEY_CUSTOM_THEME_ENABLED] = true
+                prefs[KEY_SELECTED_CUSTOM_THEME] = PremiumTheme.WATER_DROP.name
+            } else {
+                prefs[KEY_CUSTOM_THEME_ENABLED] = false
+            }
+        }
+    }
+
+    suspend fun setCustomThemeEnabled(enabled: Boolean) {
+        context.dataStore.edit { prefs ->
+            prefs[KEY_CUSTOM_THEME_ENABLED] = enabled
+            if (!enabled) {
+                if (prefs[KEY_BACKGROUND_STYLE] == BackgroundStyle.WATER_DROP.name) {
+                    prefs[KEY_BACKGROUND_STYLE] = BackgroundStyle.DEFAULT.name
+                }
+            }
+        }
+    }
+
+    suspend fun setSelectedCustomTheme(theme: PremiumTheme) {
+        context.dataStore.edit { prefs ->
+            prefs[KEY_SELECTED_CUSTOM_THEME] = theme.name
+            prefs[KEY_CUSTOM_THEME_ENABLED] = true
+        }
+    }
+
+    suspend fun activatePremiumTheme(theme: PremiumTheme) {
+        context.dataStore.edit { prefs ->
+            prefs[KEY_SELECTED_CUSTOM_THEME] = theme.name
+            prefs[KEY_CUSTOM_THEME_ENABLED] = true
+        }
+    }
+
+    suspend fun deactivatePremiumTheme() {
+        context.dataStore.edit { prefs ->
+            prefs[KEY_CUSTOM_THEME_ENABLED] = false
+            if (prefs[KEY_BACKGROUND_STYLE] == BackgroundStyle.WATER_DROP.name) {
+                prefs[KEY_BACKGROUND_STYLE] = BackgroundStyle.DEFAULT.name
+            }
+        }
+    }
+
+    suspend fun setThemeAnimationEnabled(enabled: Boolean) {
+        context.dataStore.edit { prefs ->
+            prefs[KEY_THEME_ANIMATION_ENABLED] = enabled
+            prefs[KEY_WATER_DROP_ANIMATION_ENABLED] = enabled
+        }
+    }
+
+    suspend fun setThemeAnimationIntensity(intensity: ThemeAnimationIntensity) {
+        context.dataStore.edit { prefs ->
+            prefs[KEY_THEME_ANIMATION_INTENSITY] = intensity.name
+            val waterIntensity = when (intensity) {
+                ThemeAnimationIntensity.LOW -> WaterAnimationIntensity.LOW
+                ThemeAnimationIntensity.MEDIUM -> WaterAnimationIntensity.MEDIUM
+                ThemeAnimationIntensity.HIGH -> WaterAnimationIntensity.HIGH
+            }
+            prefs[KEY_WATER_DROP_INTENSITY] = waterIntensity.name
+        }
+    }
+
+    suspend fun resetToDefaultAppearance() {
+        context.dataStore.edit { prefs ->
+            prefs[KEY_CUSTOM_THEME_ENABLED] = false
+            prefs[KEY_THEME_MODE] = AppThemeMode.SYSTEM.name
+            prefs[KEY_THEME_ACCENT] = ThemeAccent.BLUE.name
+            prefs[KEY_BACKGROUND_STYLE] = BackgroundStyle.DEFAULT.name
+            prefs[KEY_THEME_PRESET] = ThemePreset.DEFAULT.name
+            prefs[KEY_USE_DYNAMIC_COLORS] = true
+            prefs[KEY_BLUR_BACKGROUND] = true
+            prefs[KEY_SMOOTH_ANIMATIONS] = true
+            prefs[KEY_THEME_ANIMATION_ENABLED] = true
+            prefs[KEY_THEME_ANIMATION_INTENSITY] = ThemeAnimationIntensity.MEDIUM.name
         }
     }
 
@@ -399,12 +535,19 @@ class PreferencesManager(
     suspend fun setWaterDropAnimationEnabled(enabled: Boolean) {
         context.dataStore.edit { prefs ->
             prefs[KEY_WATER_DROP_ANIMATION_ENABLED] = enabled
+            prefs[KEY_THEME_ANIMATION_ENABLED] = enabled
         }
     }
 
     suspend fun setWaterDropIntensity(intensity: WaterAnimationIntensity) {
         context.dataStore.edit { prefs ->
             prefs[KEY_WATER_DROP_INTENSITY] = intensity.name
+            val themeIntensity = when (intensity) {
+                WaterAnimationIntensity.LOW -> ThemeAnimationIntensity.LOW
+                WaterAnimationIntensity.MEDIUM -> ThemeAnimationIntensity.MEDIUM
+                WaterAnimationIntensity.HIGH -> ThemeAnimationIntensity.HIGH
+            }
+            prefs[KEY_THEME_ANIMATION_INTENSITY] = themeIntensity.name
         }
     }
 
@@ -427,12 +570,7 @@ class PreferencesManager(
     }
 
     suspend fun activateWaterDropTheme() {
-        context.dataStore.edit { prefs ->
-            prefs[KEY_THEME_PRESET] = ThemePreset.WATER_DROP.name
-            prefs[KEY_BACKGROUND_STYLE] = BackgroundStyle.WATER_DROP.name
-            prefs[KEY_THEME_ACCENT] = ThemeAccent.CYAN.name
-            prefs[KEY_USE_DYNAMIC_COLORS] = false
-        }
+        activatePremiumTheme(PremiumTheme.WATER_DROP)
     }
 
     suspend fun updateBackupSettings(settings: BackupSettings) {
