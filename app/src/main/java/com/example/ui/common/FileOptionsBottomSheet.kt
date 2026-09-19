@@ -47,8 +47,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -72,6 +75,7 @@ fun FileOptionsBottomSheet(
     onShare: (() -> Unit)? = null,
     onRename: (() -> Unit)? = null,
     onAddToAlbum: (() -> Unit)? = null,
+    onChangeOrientation: (() -> Unit)? = null,
     onDelete: (() -> Unit)? = null,
     onShowDetails: (() -> Unit)? = null,
     modifier: Modifier = Modifier
@@ -201,6 +205,18 @@ fun FileOptionsBottomSheet(
                 )
             }
 
+            if (!item.isVideo && onChangeOrientation != null) {
+                FileActionRow(
+                    painter = painterResource(com.example.R.drawable.ic_change_orientation),
+                    title = "Change Orientation",
+                    modifier = Modifier.testTag("change_orientation_menu_item"),
+                    onClick = {
+                        onDismiss()
+                        onChangeOrientation()
+                    }
+                )
+            }
+
             if (onRename != null) {
                 FileActionRow(
                     icon = Icons.Default.DriveFileRenameOutline,
@@ -259,29 +275,40 @@ fun FileOptionsBottomSheet(
 
 @Composable
 private fun FileActionRow(
-    icon: ImageVector,
+    icon: ImageVector? = null,
+    painter: Painter? = null,
     title: String,
     iconTint: Color = MaterialTheme.colorScheme.onSurface,
     isDestructive: Boolean = false,
+    modifier: Modifier = Modifier,
     onClick: () -> Unit
 ) {
     val textColor = if (isDestructive) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface
     val effectiveIconTint = if (isDestructive) MaterialTheme.colorScheme.error else iconTint
 
     Row(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(12.dp))
             .clickable(onClick = onClick)
             .padding(horizontal = 12.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = null,
-            tint = effectiveIconTint,
-            modifier = Modifier.size(22.dp)
-        )
+        if (painter != null) {
+            Icon(
+                painter = painter,
+                contentDescription = null,
+                tint = effectiveIconTint,
+                modifier = Modifier.size(22.dp)
+            )
+        } else if (icon != null) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = effectiveIconTint,
+                modifier = Modifier.size(22.dp)
+            )
+        }
         Spacer(modifier = Modifier.width(16.dp))
         Text(
             text = title,

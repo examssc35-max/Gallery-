@@ -206,6 +206,7 @@ fun MediaViewerScreen(
     var showDeleteConfirmDialog by remember { mutableStateOf(false) }
     var showDetailsDialog by remember { mutableStateOf(false) }
     var showFileOptionsSheet by remember { mutableStateOf(false) }
+    var showChangeOrientationDialog by remember { mutableStateOf(false) }
     var isUploadingToR2 by remember { mutableStateOf(false) }
     var isDownloadingFromR2 by remember { mutableStateOf(false) }
     var isDownloaded by remember(currentItem.id) { mutableStateOf(false) }
@@ -632,8 +633,34 @@ fun MediaViewerScreen(
             onDelete = {
                 showDeleteConfirmDialog = true
             },
+            onChangeOrientation = {
+                showChangeOrientationDialog = true
+            },
             onShowDetails = {
                 showDetailsDialog = true
+            }
+        )
+    }
+
+    // Change Orientation Dialog
+    if (showChangeOrientationDialog) {
+        ChangeOrientationDialog(
+            item = currentItem,
+            r2Repository = r2Repository,
+            onDismiss = { showChangeOrientationDialog = false },
+            onSuccess = { newMediaItem ->
+                showChangeOrientationDialog = false
+                val currentIndex = pagerState.currentPage.coerceIn(0, maxOf(0, effectiveMediaList.size - 1))
+                val updatedList = effectiveMediaList.toMutableList().apply {
+                    add(currentIndex + 1, newMediaItem)
+                }
+                effectiveMediaList = updatedList
+                val newIndex = currentIndex + 1
+                MediaViewerStateHolder.setViewerData(updatedList, newIndex)
+                scope.launch {
+                    pagerState.scrollToPage(newIndex)
+                    snackbarHostState.showSnackbar("Image orientation changed")
+                }
             }
         )
     }
